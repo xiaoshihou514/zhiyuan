@@ -1,0 +1,4 @@
+/target
+*.pdf
+zhiyuan_data/
+.env

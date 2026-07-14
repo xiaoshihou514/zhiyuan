@@ -1,0 +1,26 @@
+[search]
+bing_api_key = ""
+bing_endpoint = "https://api.bing.microsoft.com/v7.0/search"
+google_api_key = ""
+google_cse_id = ""
+ddg_max_results = 10
+request_timeout_secs = 10
+
+[llm]
+reasoning_model = "o3-mini"
+reasoning_provider = "openai"
+main_model = "gpt-4o"
+main_provider = "openai"
+fast_model = "gpt-4o-mini"
+fast_provider = "openai"
+
+[research]
+max_iterations = 10
+quality_threshold = 0.7
+breadth = 4
+depth = 3
+concurrency = 4
+cost_budget_usd = 1.0
+
+[memory]
+db_path = "./zhiyuan_data"

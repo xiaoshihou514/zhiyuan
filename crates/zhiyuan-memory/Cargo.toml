@@ -1,0 +1,14 @@
+[package]
+name = "zhiyuan-memory"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zhiyuan-core = { path = "../zhiyuan-core" }
+rocksdb = "0.24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+thiserror = "2"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4", "serde"] }

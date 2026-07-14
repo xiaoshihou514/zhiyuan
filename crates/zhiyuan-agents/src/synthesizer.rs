@@ -1,0 +1,57 @@
+use uuid::Uuid;
+use zhiyuan_core::{ExtractedContent, Finding, LlmClient, Result};
+
+pub struct SynthesizerAgent {
+    llm: Box<dyn LlmClient>,
+}
+
+impl SynthesizerAgent {
+    pub fn new(llm: Box<dyn LlmClient>) -> Self {
+        Self { llm }
+    }
+
+    pub async fn synthesize(&self, contents: &[ExtractedContent], sub_task_id: Uuid, iteration: usize) -> Result<Vec<Finding>> {
+        let contents_str: String = contents
+            .iter()
+            .map(|c| format!("## [{}]({})\n{}", c.title, c.url, c.text.chars().take(2000).collect::<String>()))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let system = "你是一个信息综合专家。你的任务是将多个信息源的提取内容进行综合，
+生成简洁而有深度的研究发现摘要。你需要识别关键信息、发现信息间的关联和矛盾。
+输出 JSON 格式的发现。";
+
+        let user = format!(
+            "以下是多个信息源提取的内容，请综合这些信息，生成 2-4 个研究发现摘要。
+每个发现应该包含核心观点和引用来源。
+输出 JSON 格式：{{\"findings\": [{{\"content\": \"...\", \"sources\": [\"url1\"]}}]}}
+
+内容：
+{contents_str}"
+        );
+
+        let response = self.llm.prompt(system, &user).await?;
+        let parsed: serde_json::Value = serde_json::from_str(&response)
+            .unwrap_or(serde_json::json!({"findings": []}));
+
+        let findings: Vec<Finding> = parsed["findings"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|v| Finding {
+                        id: Uuid::new_v4(),
+                        content: v["content"].as_str().unwrap_or("").to_string(),
+                        sources: v["sources"]
+                            .as_array()
+                            .map(|s| s.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                            .unwrap_or_default(),
+                        sub_task_id: Some(sub_task_id),
+                        iteration,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(findings)
+    }
+}
