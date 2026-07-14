@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::io::{BufRead, Write};
 use std::sync::Arc;
 use zhiyuan_core::{LlmClient, ResearchConfig, ResearchQuery, ResearchSettings};
 use zhiyuan_orchestrator::ResearchOrchestrator;
@@ -13,6 +14,10 @@ struct Cli {
     /// 研究问题
     #[arg(short, long)]
     query: String,
+
+    /// 交互模式：研究前通过提问澄清问题
+    #[arg(long, default_value = "true")]
+    interactive: bool,
 
     /// 质量阈值 (0.0 - 1.0)
     #[arg(long, default_value = "0.7")]
@@ -65,6 +70,39 @@ async fn main() -> anyhow::Result<()> {
 
     let llm: Box<dyn LlmClient> = Box::new(OpenaiLlm::from_env()?);
 
+    let clarification = if cli.interactive {
+        let planner = zhiyuan_agents::PlannerAgent::new(llm.clone_box());
+        match planner.generate_clarifying_questions(&cli.query).await {
+            Ok(questions) if !questions.is_empty() => {
+                println!("\n=== 研究问题澄清 ===\n");
+                println!("您的研究问题：{}\n", cli.query);
+                println!("请回答以下问题以精炼研究方向（直接回车跳过）：\n");
+
+                let stdin = std::io::stdin();
+                let mut answers = Vec::new();
+                for (i, question) in questions.iter().enumerate() {
+                    print!("{}. {}: ", i + 1, question);
+                    std::io::stdout().flush().ok();
+                    let mut input = String::new();
+                    stdin.lock().read_line(&mut input).ok();
+                    let answer = input.trim().to_string();
+                    if !answer.is_empty() {
+                        answers.push(format!("{question} {answer}"));
+                    }
+                }
+
+                if answers.is_empty() {
+                    None
+                } else {
+                    Some(answers.join("\n"))
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     let orchestrator = ResearchOrchestrator::new(
         llm,
         engine_pool,
@@ -75,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
     let query = ResearchQuery {
         id: zhiyuan_core::Uuid::new_v4(),
         query: cli.query.clone(),
-        clarification: None,
+        clarification,
         breadth: cli.breadth,
         depth: cli.depth,
         max_iterations: cli.max_iterations,
@@ -83,7 +121,7 @@ async fn main() -> anyhow::Result<()> {
         cost_budget_usd: 1.0,
     };
 
-    tracing::info!("Starting research: {}", query.query);
+    tracing::info!("Starting research: {}", query.full_query());
     let report = orchestrator.research(query).await?;
 
     let report_json = serde_json::to_string_pretty(&report)?;
