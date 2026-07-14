@@ -136,6 +136,61 @@ impl SemanticMemory {
             None => Ok(None),
         }
     }
+
+    pub fn store_finding(&self, topic: &str, finding: &Finding) -> Result<()> {
+        let cf = self.db.cf_handle(CF_SEMANTIC)
+            .ok_or_else(|| Error::Memory("column family not found".into()))?;
+        let key = format!("finding:{topic}:{}", finding.id);
+        let value = serde_json::to_string(finding)?;
+        self.db.put_cf(&cf, key.as_bytes(), value.as_bytes())
+            .map_err(|e| Error::Memory(format!("SemanticMemory write failed: {e}")))?;
+        Ok(())
+    }
+
+    pub fn find_relevant_findings(&self, query: &str) -> Result<Vec<(Finding, f64)>> {
+        let cf = self.db.cf_handle(CF_SEMANTIC)
+            .ok_or_else(|| Error::Memory("column family not found".into()))?;
+        let query_lower = query.to_lowercase();
+        let query_keywords: Vec<&str> = query_lower
+            .split_whitespace()
+            .filter(|w| w.len() > 2)
+            .collect();
+
+        if query_keywords.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut results: Vec<(Finding, usize)> = Vec::new();
+        let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
+
+        for item in iter {
+            let (key, value) = item.map_err(|e| Error::Memory(format!("semantic read failed: {e}")))?;
+            let key_str = String::from_utf8_lossy(&key);
+            if !key_str.starts_with("finding:") {
+                continue;
+            }
+            if let Some(topic) = key_str.split(':').nth(1) {
+                let topic_lower = topic.to_lowercase();
+                let match_count = query_keywords
+                    .iter()
+                    .filter(|kw| topic_lower.contains(**kw))
+                    .count();
+                if match_count > 0 {
+                    if let Ok(finding) = serde_json::from_slice::<Finding>(&value) {
+                        results.push((finding, match_count));
+                    }
+                }
+            }
+        }
+
+        results.sort_by(|a, b| b.1.cmp(&a.1));
+        let max_count = results.first().map(|r| r.1).unwrap_or(1).max(1);
+        Ok(results
+            .into_iter()
+            .take(20)
+            .map(|(f, c)| (f, c as f64 / max_count as f64))
+            .collect())
+    }
 }
 
 pub struct MemoryManager {

@@ -60,8 +60,21 @@ impl ResearchOrchestrator {
         tracing::info!(tasks = %plan.sub_tasks.len(), "plan created");
         self.save_to_memory("plan", &serde_json::to_string(&plan).unwrap_or_default());
 
+        let existing_findings = self
+            .memory
+            .as_ref()
+            .and_then(|m| m.semantic.find_relevant_findings(&query.query).ok())
+            .unwrap_or_default();
+
+        if !existing_findings.is_empty() {
+            tracing::info!(count = %existing_findings.len(), "found relevant findings in semantic memory");
+        }
+
         let mut state = IterationState {
-            findings: Vec::new(),
+            findings: existing_findings.into_iter().map(|(f, _)| Finding {
+                iteration: 0,
+                ..f
+            }).collect(),
             citation_graph: CitationGraph {
                 claims: vec![],
                 sources: vec![],
@@ -165,6 +178,18 @@ impl ResearchOrchestrator {
         };
 
         self.save_to_memory("report", &serde_json::to_string(&report).unwrap_or_default());
+
+        if let Some(ref memory) = self.memory {
+            for finding in &state.findings {
+                let topic = plan
+                    .sub_tasks
+                    .iter()
+                    .find(|t| finding.sub_task_id.map(|id| t.id == id).unwrap_or(false))
+                    .map(|t| t.description.as_str())
+                    .unwrap_or(&query.query);
+                let _ = memory.semantic.store_finding(topic, finding);
+            }
+        }
 
         Ok(report)
     }
