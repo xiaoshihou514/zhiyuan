@@ -26,6 +26,7 @@ pub struct ResearchOrchestrator {
     verifier: VerifierAgent,
     quality_evaluator: QualityEvaluator,
     config: ResearchSettings,
+    llm: Box<dyn LlmClient>,
 }
 
 impl ResearchOrchestrator {
@@ -48,13 +49,14 @@ impl ResearchOrchestrator {
             verifier: VerifierAgent::new(llm.clone_box()),
             quality_evaluator: QualityEvaluator,
             config,
+            llm,
         }
     }
 
     pub async fn research(&self, query: ResearchQuery) -> Result<ResearchReport> {
         tracing::info!(query = %query.query, "starting research");
 
-        let plan = self.planner.create_plan(&query).await?;
+        let plan = self.planner.create_plan(&query, &self.config).await?;
         tracing::info!(tasks = %plan.sub_tasks.len(), "plan created");
         self.save_to_memory("plan", &serde_json::to_string(&plan).unwrap_or_default());
 
@@ -145,16 +147,20 @@ impl ResearchOrchestrator {
             &query.full_query(),
         );
 
-        let report = match state.report {
-            Some(existing) => self
-                .writer
-                .update_report(&existing, &state.findings, &state.citation_graph, &quality)
-                .await
-                .unwrap_or(existing),
-            None => {
-                self.writer
-                    .write_report(&query.query, &state.findings, &state.citation_graph, &quality)
-                    .await?
+        let report = if self.config.long_report && plan.outline.is_some() {
+            self.build_long_report(&query, &state, &quality, &plan).await?
+        } else {
+            match state.report {
+                Some(existing) => self
+                    .writer
+                    .update_report(&existing, &state.findings, &state.citation_graph, &quality)
+                    .await
+                    .unwrap_or(existing),
+                None => {
+                    self.writer
+                        .write_report(&query.query, &state.findings, &state.citation_graph, &quality)
+                        .await?
+                }
             }
         };
 
@@ -320,6 +326,189 @@ impl ResearchOrchestrator {
                 generated_at: chrono::Utc::now(),
             },
         }
+    }
+
+    async fn build_long_report(
+        &self,
+        query: &ResearchQuery,
+        state: &IterationState,
+        quality: &QualityScore,
+        plan: &ResearchPlan,
+    ) -> Result<ResearchReport> {
+        let outline = plan.outline.as_deref().unwrap_or("");
+        let chapter_titles: Vec<String> = outline
+            .lines()
+            .filter(|l| l.starts_with("# "))
+            .map(|l| l.trim_start_matches("# ").to_string())
+            .collect();
+
+        if chapter_titles.is_empty() {
+            tracing::warn!("no chapters in outline, falling back to simple report");
+            return self
+                .writer
+                .write_report(&query.query, &state.findings, &state.citation_graph, quality)
+                .await;
+        }
+
+        let chapters = self
+            .assign_findings_to_chapters(&chapter_titles, outline, &state.findings)
+            .await;
+
+        let cross_check = if chapters.len() > 1 {
+            self.cross_check_chapters(&chapters).await
+        } else {
+            String::new()
+        };
+
+        let report = self
+            .writer
+            .write_long_report(&query.query, outline, &chapters, &cross_check, quality)
+            .await
+            .map_err(|e| {
+                tracing::warn!("long report generation failed: {e}");
+                e
+            })
+            .unwrap_or_else(|_| ResearchReport {
+                query_id: query.id,
+                title: format!("{} - 详细研究报告", query.query),
+                sections: state
+                    .findings
+                    .iter()
+                    .map(|f| zhiyuan_core::ReportSection {
+                        heading: "研究发现".into(),
+                        content: f.content.clone(),
+                        citations: f.sources.clone(),
+                    })
+                    .collect(),
+                citation_graph: state.citation_graph.clone(),
+                quality_score: quality.clone(),
+                generated_at: chrono::Utc::now(),
+            });
+
+        Ok(report)
+    }
+
+    async fn assign_findings_to_chapters(
+        &self,
+        chapter_titles: &[String],
+        outline: &str,
+        findings: &[Finding],
+    ) -> Vec<ReportChapter> {
+        if findings.is_empty() || chapter_titles.is_empty() {
+            return vec![];
+        }
+
+        let chapters_str = chapter_titles
+            .iter()
+            .enumerate()
+            .map(|(i, t)| format!("{i}. {t}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let findings_str: String = findings
+            .iter()
+            .enumerate()
+            .map(|(i, f)| format!("[{i}] {}\n  来源：{}", f.content, f.sources.join(", ")))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let system = "你是一个研究分析专家。根据研究报告大纲章节和研究发现列表，将每个发现分配到最合适的章节。";
+
+        let user = format!(
+            "大纲章节：
+{chapters_str}
+
+研究发现（每条带编号）：
+{findings_str}
+
+请为每条发现分配一个章节编号。输出 JSON 格式：{{\"assignments\": [{{\"finding_index\": 0, \"chapter_index\": 0}}]}}
+如果某条发现不适合任何章节，设置 chapter_index 为 -1。"
+        );
+
+        let response = self.llm.prompt(system, &user).await.ok();
+        let assignments: Vec<(usize, usize)> = response
+            .and_then(|r| serde_json::from_str::<serde_json::Value>(&r).ok())
+            .and_then(|v| {
+                v["assignments"].as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| {
+                            let fi = item["finding_index"].as_i64()? as usize;
+                            let ci = item["chapter_index"].as_i64()?;
+                            if ci >= 0 { Some((fi, ci as usize)) } else { None }
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .unwrap_or_default();
+
+        let mut chapters: Vec<ReportChapter> = chapter_titles
+            .iter()
+            .map(|title| {
+                let desc = outline
+                    .lines()
+                    .skip_while(|l| !l.contains(title))
+                    .skip(1)
+                    .take_while(|l| !l.starts_with("# "))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                ReportChapter {
+                    title: title.clone(),
+                    description: desc,
+                    findings: vec![],
+                }
+            })
+            .collect();
+
+        for (fi, ci) in &assignments {
+            if *ci < chapters.len() && *fi < findings.len() {
+                chapters[*ci].findings.push(findings[*fi].clone());
+            }
+        }
+
+        let assigned: std::collections::HashSet<usize> =
+            assignments.iter().map(|(fi, _)| *fi).collect();
+        for (i, f) in findings.iter().enumerate() {
+            if !assigned.contains(&i) && !chapters.is_empty() {
+                let best = i % chapters.len();
+                chapters[best].findings.push(f.clone());
+            }
+        }
+
+        chapters
+    }
+
+    async fn cross_check_chapters(&self, chapters: &[ReportChapter]) -> String {
+        let chapters_str: String = chapters
+            .iter()
+            .map(|ch| {
+                let findings_summary: String = ch
+                    .findings
+                    .iter()
+                    .map(|f| format!("- {}", f.content))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("# {}\n{}\n\n{}", ch.title, ch.description, findings_summary)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let system = "你是一个研究报告校对专家。检查以下多章节研究报告各个章节之间是否存在重复、矛盾或遗漏，给出改进建议。";
+
+        let user = format!(
+            "请检查以下各章节内容，指出：
+1. 重复内容（多个章节覆盖同一主题）
+2. 矛盾之处（章节间的观点不一致）
+3. 遗漏（应该覆盖但未涉及的角度）
+4. 改进建议
+
+各章节：
+{chapters_str}"
+        );
+
+        self.llm
+            .prompt(system, &user)
+            .await
+            .unwrap_or_default()
     }
 
     fn save_to_memory(&self, key: &str, value: &str) {

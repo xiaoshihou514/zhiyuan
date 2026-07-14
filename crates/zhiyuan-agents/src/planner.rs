@@ -1,4 +1,4 @@
-use zhiyuan_core::{sub_task_from_value, LlmClient, ResearchPlan, ResearchQuery, Result};
+use zhiyuan_core::{sub_task_from_value, LlmClient, ResearchPlan, ResearchQuery, ResearchSettings, Result};
 
 pub struct PlannerAgent {
     llm: Box<dyn LlmClient>,
@@ -26,15 +26,23 @@ impl PlannerAgent {
         }).collect())
     }
 
-    pub async fn create_plan(&self, query: &ResearchQuery) -> Result<ResearchPlan> {
+    pub async fn create_plan(&self, query: &ResearchQuery, settings: &ResearchSettings) -> Result<ResearchPlan> {
+        if settings.long_report {
+            self.create_long_plan(query, settings).await
+        } else {
+            self.create_short_plan(query).await
+        }
+    }
+
+    async fn create_short_plan(&self, query: &ResearchQuery) -> Result<ResearchPlan> {
         let system = "你是一个研究规划专家。你的任务是根据用户的研究问题，生成结构化的研究计划。
-你需要将复杂问题分解为具体的子任务，每个子任务应该是一个可以独立搜索和研究的方面。
-输出必须是 JSON 格式，包含 sub_tasks 数组，每个子任务有 description 和 dependencies 字段。";
+ 你需要将复杂问题分解为具体的子任务，每个子任务应该是一个可以独立搜索和研究的方面。
+ 输出必须是 JSON 格式，包含 sub_tasks 数组，每个子任务有 description 和 dependencies 字段。";
 
         let user = format!(
             "研究问题：{}
-            研究范围：请将这个问题分解为 3-6 个具体的子任务，每个子任务应该聚焦于一个独立的方面。
-            输出格式：{{\"sub_tasks\": [{{\"description\": \"...\", \"dependencies\": []}}]}}",
+             研究范围：请将这个问题分解为 3-6 个具体的子任务，每个子任务应该聚焦于一个独立的方面。
+             输出格式：{{\"sub_tasks\": [{{\"description\": \"...\", \"dependencies\": []}}]}}",
             query.full_query()
         );
 
@@ -48,6 +56,53 @@ impl PlannerAgent {
             query_id: query.id,
             sub_tasks: tasks,
             outline: None,
+        })
+    }
+
+    async fn create_long_plan(&self, query: &ResearchQuery, settings: &ResearchSettings) -> Result<ResearchPlan> {
+        let system = "你是一个研究规划和报告结构专家。你的任务是根据用户的研究问题，生成多章节的研究计划和大纲。
+每个章节应该覆盖一个独立的子主题，所有章节合起来形成完整的研究报告。
+输出必须是 JSON 格式。";
+
+        let user = format!(
+            "研究问题：{}
+             请生成一个包含 {max_chapters} 个章节的研究大纲，每个章节包含 title 和 description。
+             同时为每个章节生成 2-3 个具体的子任务（sub_tasks）。
+             输出格式：{{
+               \"outline\": [
+                 {{\"title\": \"章节标题\", \"description\": \"章节描述\"}}
+               ],
+               \"sub_tasks\": [
+                 {{\"description\": \"子任务描述\", \"chapter_index\": 0, \"dependencies\": []}}
+               ]
+             }}
+             其中 chapter_index 表示该子任务属于第几个章节（从 0 开始）。",
+            query.full_query(),
+            max_chapters = settings.max_chapters.min(10).max(3)
+        );
+
+        let response = self.llm.prompt(system, &user).await?;
+        let parsed: serde_json::Value = serde_json::from_str(&response)
+            .map_err(|e| zhiyuan_core::Error::Agent(format!("Failed to parse planner output: {e}")))?;
+
+        let tasks = sub_task_from_value(&parsed);
+        let outline = parsed["outline"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|v| {
+                        let title = v["title"].as_str().unwrap_or("").to_string();
+                        let desc = v["description"].as_str().unwrap_or("").to_string();
+                        format!("# {title}\n{desc}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            });
+
+        Ok(ResearchPlan {
+            query_id: query.id,
+            sub_tasks: tasks,
+            outline,
         })
     }
 }

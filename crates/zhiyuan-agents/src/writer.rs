@@ -1,6 +1,6 @@
 use chrono::Utc;
 use uuid::Uuid;
-use zhiyuan_core::{CitationGraph, Finding, LlmClient, QualityScore, ReportSection, ResearchReport, Result};
+use zhiyuan_core::{CitationGraph, Finding, LlmClient, QualityScore, ReportChapter, ReportSection, ResearchReport, Result};
 
 pub struct WriterAgent {
     llm: Box<dyn LlmClient>,
@@ -98,6 +98,85 @@ impl WriterAgent {
             citation_graph: citation_graph.clone(),
             quality_score: quality_score.clone(),
             generated_at: Utc::now(),
+        })
+    }
+
+    pub async fn write_long_report(
+        &self,
+        research_question: &str,
+        outline: &str,
+        chapters: &[ReportChapter],
+        cross_check_review: &str,
+        quality_score: &QualityScore,
+    ) -> Result<ResearchReport> {
+        let system = "你是一个研究报告写作专家。根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。";
+
+        let chapters_str: String = chapters
+            .iter()
+            .map(|ch| {
+                let findings_str: String = ch
+                    .findings
+                    .iter()
+                    .map(|f| {
+                        let sources = f.sources.join(", ");
+                        format!("- {}\n  来源：{sources}", f.content)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("# {}\n{}\n\n研究发现：\n{}", ch.title, ch.description, findings_str)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let user = format!(
+            "研究问题：{research_question}
+
+大纲：
+{outline}
+
+各章节研究发现：
+{chapters_str}
+
+交叉校对意见：
+{cross_check_review}
+
+质量评分：{quality}
+
+请生成完整的 Markdown 研究报告，包含：
+1. 摘要
+2. 研究背景
+3. 各章节正文
+4. 结论与展望
+5. 参考文献
+
+确保章节之间逻辑连贯，交叉校对意见已落实。",
+            quality = serde_json::to_string_pretty(quality_score).unwrap_or_default()
+        );
+
+        let response = self.llm.prompt(system, &user).await?;
+
+        let mut all_citations: Vec<String> = chapters
+            .iter()
+            .flat_map(|ch| ch.findings.iter().flat_map(|f| f.sources.clone()))
+            .collect();
+        all_citations.sort();
+        all_citations.dedup();
+
+        Ok(ResearchReport {
+            query_id: Uuid::new_v4(),
+            title: format!("{research_question} - 详细研究报告"),
+            sections: vec![ReportSection {
+                heading: "完整报告".into(),
+                content: response,
+                citations: all_citations,
+            }],
+            citation_graph: CitationGraph {
+                claims: vec![],
+                sources: vec![],
+                edges: vec![],
+            },
+            quality_score: quality_score.clone(),
+            generated_at: chrono::Utc::now(),
         })
     }
 

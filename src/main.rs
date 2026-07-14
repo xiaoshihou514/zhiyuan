@@ -19,6 +19,14 @@ struct Cli {
     #[arg(long, default_value = "true")]
     interactive: bool,
 
+    /// 长报告模式：多章节结构报告
+    #[arg(long)]
+    long_report: bool,
+
+    /// 长报告最大章节数
+    #[arg(long, default_value = "6")]
+    max_chapters: usize,
+
     /// 质量阈值 (0.0 - 1.0)
     #[arg(long, default_value = "0.7")]
     quality_threshold: f64,
@@ -129,14 +137,30 @@ async fn main() -> anyhow::Result<()> {
     if let Some(path) = cli.output {
         std::fs::write(&path, &report_json)?;
         tracing::info!("Report written to {path}");
+    } else if cli.long_report {
+        println!("# {}\n", report.title);
+        for section in &report.sections {
+            if !section.content.is_empty() {
+                println!("{}", section.content);
+            }
+        }
+        println!("\n---\n");
+        println!(
+            "质量评分: {:.2} (覆盖率: {:.2}, 可靠性: {:.2}, 时效性: {:.2}, 深度: {:.2})",
+            report.quality_score.overall,
+            report.quality_score.coverage,
+            report.quality_score.reliability,
+            report.quality_score.freshness,
+            report.quality_score.depth,
+        );
     } else {
         for section in &report.sections {
             println!("# {}\n", section.heading);
             println!("{}\n", section.content);
         }
-        println!("---");
+        println!("---\n");
         println!(
-            "Quality score: {:.2} (coverage: {:.2}, reliability: {:.2}, freshness: {:.2}, depth: {:.2})",
+            "质量评分: {:.2} (覆盖率: {:.2}, 可靠性: {:.2}, 时效性: {:.2}, 深度: {:.2})",
             report.quality_score.overall,
             report.quality_score.coverage,
             report.quality_score.reliability,
@@ -183,6 +207,8 @@ fn load_config(cli: &Cli) -> anyhow::Result<ResearchConfig> {
             depth: cli.depth,
             concurrency: cli.concurrency,
             cost_budget_usd: 1.0,
+            long_report: cli.long_report,
+            max_chapters: cli.max_chapters,
         },
         memory: zhiyuan_core::MemoryConfig {
             db_path: cli.data_dir.clone(),

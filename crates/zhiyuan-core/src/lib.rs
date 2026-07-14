@@ -231,6 +231,8 @@ pub struct ResearchSettings {
     pub depth: usize,
     pub concurrency: usize,
     pub cost_budget_usd: f64,
+    pub long_report: bool,
+    pub max_chapters: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,6 +278,13 @@ pub struct ResearchDirection {
     pub description: String,
     pub rationale: String,
     pub priority: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportChapter {
+    pub title: String,
+    pub description: String,
+    pub findings: Vec<Finding>,
 }
 
 pub trait ModelProvider: Send + Sync {
