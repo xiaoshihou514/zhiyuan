@@ -16,3 +16,6 @@ tracing = "0.1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 async-trait = "0.1"
+tokio = { version = "1", features = ["sync"] }
+chrono = "0.4"
+futures = "0.3"

@@ -271,6 +271,13 @@ pub fn sub_task_from_value(parsed: &serde_json::Value) -> Vec<SubTask> {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResearchDirection {
+    pub description: String,
+    pub rationale: String,
+    pub priority: f64,
+}
+
 pub trait ModelProvider: Send + Sync {
     fn name(&self) -> &str;
     fn tier(&self) -> ModelTier;

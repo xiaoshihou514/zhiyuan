@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use zhiyuan_core::{LlmClient, Result, SearchQuery, SearchResult};
 use zhiyuan_search::EnginePool;
 
@@ -36,17 +37,38 @@ impl SearcherAgent {
         Ok(queries)
     }
 
-    pub async fn execute_search(&self, queries: &[String], max_results: usize) -> Result<Vec<SearchResult>> {
-        let mut all_results = Vec::new();
+    pub async fn execute_search(
+        &self,
+        queries: &[String],
+        max_results: usize,
+        concurrency: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let semaphore = Arc::new(Semaphore::new(concurrency));
+        let mut handles = Vec::new();
+
         for query_str in queries {
-            let sq = SearchQuery {
-                query: query_str.clone(),
-                max_results,
-                region: None,
-            };
-            match self.engine_pool.search(&sq).await {
-                Ok(results) => all_results.extend(results),
-                Err(e) => tracing::warn!("Search failed for query '{}': {e}", query_str),
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let engine = self.engine_pool.clone();
+            let q = query_str.clone();
+
+            handles.push(tokio::spawn(async move {
+                let _permit = permit;
+                let sq = SearchQuery {
+                    query: q.clone(),
+                    max_results,
+                    region: None,
+                };
+                let result = engine.search(&sq).await;
+                (q, result)
+            }));
+        }
+
+        let mut all_results = Vec::new();
+        for handle in handles {
+            match handle.await {
+                Ok((_q, Ok(results))) => all_results.extend(results),
+                Ok((_q, Err(e))) => tracing::warn!("Search failed for query '{_q}': {e}"),
+                Err(e) => tracing::warn!("Search task panicked: {e}"),
             }
         }
         Ok(all_results)
