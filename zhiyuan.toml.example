@@ -1,11 +1,10 @@
 [search]
-max_results = 10
-request_timeout_secs = 10
+# 搜索引擎配置（Bing/Google/DuckDuckGo 均通过 HTML 解析，无需 API 密钥）
+max_results = 10               # 每个引擎最大结果数
 
 [llm]
-api_key = ""
-base_url = "https://api.deepseek.com/v1"
-main_model = "deepseek-v4-flash"
+api_key = ""               # 必填，API 密钥
+base_url = "https://api.openai.com/v1"  # API 地址（OpenAI 兼容）
 
 [research]
 concurrency = 4

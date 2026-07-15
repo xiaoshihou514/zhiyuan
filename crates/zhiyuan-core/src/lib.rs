@@ -191,26 +191,24 @@ pub struct ResearchConfig {
     pub search: SearchConfig,
     pub llm: LlmConfig,
     pub research: ResearchSettings,
-    pub memory: MemoryConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
     pub max_results: usize,
-    pub request_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
+    #[serde(default)]
     pub api_key: String,
+    #[serde(default)]
     pub base_url: String,
-    pub reasoning_model: String,
-    pub reasoning_provider: String,
+    #[serde(default = "default_main_model")]
     pub main_model: String,
-    pub main_provider: String,
-    pub fast_model: String,
-    pub fast_provider: String,
 }
+
+fn default_main_model() -> String { "gpt-4o".into() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchSettings {
@@ -229,11 +227,6 @@ pub struct ResearchSettings {
 fn default_max_iterations() -> usize { 10 }
 fn default_quality_threshold() -> f64 { 0.7 }
 fn default_concurrency() -> usize { 4 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryConfig {
-    pub db_path: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProgressReport {

@@ -1,17 +1,9 @@
 [search]
 max_results = 10
-request_timeout_secs = 10
 
 [llm]
-reasoning_model = "o3-mini"
-reasoning_provider = "openai"
-main_model = "gpt-4o"
-main_provider = "openai"
-fast_model = "gpt-4o-mini"
-fast_provider = "openai"
+api_key = ""
+base_url = "https://api.openai.com/v1"
 
 [research]
 concurrency = 4
-
-[memory]
-db_path = "./zhiyuan_data"
