@@ -33,13 +33,14 @@ cargo run -- "RISC-V AI 加速器架构" --concurrency 8
 
 ## 环境变量
 
-| 变量              | 必填 | 默认值 | 描述                                                |
-| ----------------- | ---- | ------ | --------------------------------------------------- |
-| `OPENAI_API_KEY`  | 否   | —      | 覆盖配置文件中 [llm] 的 api_key                     |
-| `OPENAI_BASE_URL` | 否   | —      | 覆盖配置文件中 [llm] 的 base_url                    |
-| `RUST_LOG`        | 否   | `info` | 日志级别 (`error`/`warn`/`info`/`debug`/`trace`)    |
+| 变量       | 必填 | 默认值  | 描述                                             |
+| ---------- | ---- | ------- | ------------------------------------------------ |
+| `RUST_LOG` | 否   | `info`  | 日志级别 (`error`/`warn`/`info`/`debug`/`trace`) |
 
 搜索引擎无需 API 密钥——Bing、Google、DuckDuckGo 均通过 HTML 解析获取结果。
+LLM API 密钥通过配置文件设置，不支持环境变量覆盖。
+
+日志文件写入 `~/.local/share/zhiyuan/<query_hash>.log`。
 
 `.env` 文件会被自动加载（如果存在）。
 

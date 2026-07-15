@@ -32,24 +32,34 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    dotenvy::dotenv().ok();
+
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        cli.query.hash(&mut hasher);
+        hasher.finish()
+    };
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let log_dir = Path::new(&home).join(".local/share/zhiyuan");
+    std::fs::create_dir_all(&log_dir).ok();
+    let log_path = log_dir.join(format!("{:016x}.log", hash));
+    let log_file = std::fs::File::create(&log_path)
+        .map_err(|e| anyhow::anyhow!("创建日志文件失败 {}: {e}", log_path.display()))?;
+
     tracing_subscriber::fmt()
+        .with_writer(std::sync::Mutex::new(log_file))
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "info".into()),
         )
         .init();
 
-    let cli = Cli::parse();
-    dotenvy::dotenv().ok();
+    tracing::info!(query = %cli.query, hash = %format!("{:016x}", hash), "session started");
 
-    let data_dir = {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        cli.query.hash(&mut hasher);
-        let hash = hasher.finish();
-        format!("{home}/.cache/zhiyuan/{:016x}", hash)
-    };
+    let data_dir = format!("{home}/.cache/zhiyuan/{:016x}", hash);
 
     let mut config = load_config()?;
     config.research.long_report = cli.long;
@@ -176,15 +186,8 @@ fn load_config() -> anyhow::Result<ResearchConfig> {
     let config_str = std::fs::read_to_string(&config_path)
         .map_err(|e| anyhow::anyhow!("读取配置文件失败 {}: {e}", config_path.display()))?;
 
-    let mut config: ResearchConfig = toml::from_str(&config_str)
+    let config: ResearchConfig = toml::from_str(&config_str)
         .map_err(|e| anyhow::anyhow!("解析配置文件失败: {e}"))?;
-
-    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-        config.llm.api_key = key;
-    }
-    if let Ok(url) = std::env::var("OPENAI_BASE_URL") {
-        config.llm.base_url = url;
-    }
 
     Ok(config)
 }
