@@ -160,18 +160,18 @@ fn markdown_to_typst(md: &str) -> String {
         }
 
         let trimmed = line.trim_start();
-        if trimmed.starts_with("# ") {
+        if let Some(rest) = trimmed.strip_prefix("# ") {
             result.push_str("= ");
-            result.push_str(&trimmed[2..]);
-        } else if trimmed.starts_with("## ") {
+            result.push_str(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("## ") {
             result.push_str("== ");
-            result.push_str(&trimmed[3..]);
-        } else if trimmed.starts_with("### ") {
+            result.push_str(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("### ") {
             result.push_str("=== ");
-            result.push_str(&trimmed[4..]);
-        } else if trimmed.starts_with("#### ") {
+            result.push_str(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("#### ") {
             result.push_str("==== ");
-            result.push_str(&trimmed[5..]);
+            result.push_str(rest);
         } else {
             result.push_str(&line.replace("**", "*"));
         }

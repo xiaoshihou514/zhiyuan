@@ -163,6 +163,21 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let pdf_filename = report
+        .title
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("_")
+        .trim_end_matches('_')
+        .to_string()
+        + ".pdf";
+    if let Err(e) = pdf::compile_report(&report, std::path::Path::new(&pdf_filename)) {
+        tracing::warn!("PDF 生成失败: {e}");
+    }
+
     Ok(())
 }
 
