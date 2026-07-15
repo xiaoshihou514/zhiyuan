@@ -18,7 +18,7 @@ struct Cli {
     query: String,
 
     /// 研究前 LLM 生成澄清问题并等待用户回答
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     clarify: bool,
 
     /// 启用长报告模式（多章节结构报告）
