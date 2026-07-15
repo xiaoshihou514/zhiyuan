@@ -36,11 +36,6 @@ pub struct ResearchQuery {
     pub id: Uuid,
     pub query: String,
     pub clarification: Option<String>,
-    pub breadth: usize,
-    pub depth: usize,
-    pub max_iterations: usize,
-    pub quality_threshold: f64,
-    pub cost_budget_usd: f64,
 }
 
 impl ResearchQuery {
@@ -49,11 +44,6 @@ impl ResearchQuery {
             id: Uuid::new_v4(),
             query: query.into(),
             clarification: None,
-            breadth: 4,
-            depth: 3,
-            max_iterations: 10,
-            quality_threshold: 0.7,
-            cost_budget_usd: 1.0,
         }
     }
 
@@ -208,7 +198,6 @@ pub struct ResearchConfig {
 pub struct SearchConfig {
     pub ddg_max_results: usize,
     pub request_timeout_secs: u64,
-    pub cross_validate: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,16 +214,21 @@ pub struct LlmConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchSettings {
+    #[serde(default = "default_max_iterations")]
     pub max_iterations: usize,
+    #[serde(default = "default_quality_threshold")]
     pub quality_threshold: f64,
-    pub breadth: usize,
-    pub depth: usize,
+    #[serde(default = "default_concurrency")]
     pub concurrency: usize,
-    pub cost_budget_usd: f64,
+    #[serde(default)]
     pub long_report: bool,
-    pub max_chapters: usize,
+    #[serde(default)]
     pub cross_validate: bool,
 }
+
+fn default_max_iterations() -> usize { 10 }
+fn default_quality_threshold() -> f64 { 0.7 }
+fn default_concurrency() -> usize { 4 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {

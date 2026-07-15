@@ -11,12 +11,7 @@ fast_model = "gpt-4o-mini"
 fast_provider = "openai"
 
 [research]
-max_iterations = 10
-quality_threshold = 0.7
-breadth = 4
-depth = 3
 concurrency = 4
-cost_budget_usd = 1.0
 
 [memory]
 db_path = "./zhiyuan_data"

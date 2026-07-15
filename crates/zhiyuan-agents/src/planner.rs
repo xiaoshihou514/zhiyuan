@@ -59,14 +59,14 @@ impl PlannerAgent {
         })
     }
 
-    async fn create_long_plan(&self, query: &ResearchQuery, settings: &ResearchSettings) -> Result<ResearchPlan> {
+    async fn create_long_plan(&self, query: &ResearchQuery, _settings: &ResearchSettings) -> Result<ResearchPlan> {
         let system = "你是一个研究规划和报告结构专家。你的任务是根据用户的研究问题，生成多章节的研究计划和大纲。
 每个章节应该覆盖一个独立的子主题，所有章节合起来形成完整的研究报告。
 输出必须是 JSON 格式。";
 
         let user = format!(
             "研究问题：{}
-             请生成一个包含 {max_chapters} 个章节的研究大纲，每个章节包含 title 和 description。
+             请生成一个研究大纲，包含适量的章节（通常 3-8 个），每个章节包含 title 和 description。
              同时为每个章节生成 2-3 个具体的子任务（sub_tasks）。
              输出格式：{{
                \"outline\": [
@@ -78,7 +78,6 @@ impl PlannerAgent {
              }}
              其中 chapter_index 表示该子任务属于第几个章节（从 0 开始）。",
             query.full_query(),
-            max_chapters = settings.max_chapters.min(10).max(3)
         );
 
         let response = self.llm.prompt(system, &user).await?;
