@@ -8,6 +8,8 @@ use zhiyuan_search::EnginePool;
 mod llm;
 use llm::OpenaiLlm;
 
+mod pdf;
+
 #[derive(Parser)]
 #[command(name = "zhiyuan", version, about = "致远 - 深度研究框架")]
 struct Cli {
@@ -149,11 +151,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting research: {}", query.full_query());
     let report = orchestrator.research(query).await?;
 
-    let report_json = serde_json::to_string_pretty(&report)?;
-
     if let Some(path) = cli.output {
-        std::fs::write(&path, &report_json)?;
-        tracing::info!("Report written to {path}");
+        let out_path = if path.ends_with(".pdf") {
+            path.clone()
+        } else {
+            format!("{path}.pdf")
+        };
+        pdf::compile_report(&report, std::path::Path::new(&out_path))?;
     } else if cli.long_report {
         println!("# {}\n", report.title);
         for section in &report.sections {
