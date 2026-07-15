@@ -256,14 +256,17 @@ impl ResearchOrchestrator {
     async fn process_single_task(&self, task_desc: &str, iteration: usize) -> Result<Vec<Finding>> {
         let context = String::new();
 
-        let queries = self.searcher.generate_queries(task_desc, &context).await?;
+        let queries = self
+            .searcher
+            .generate_queries(task_desc, &context, &self.config)
+            .await?;
         if queries.is_empty() {
             return Ok(vec![]);
         }
 
         let search_results = self
             .searcher
-            .execute_search(&queries, 5, self.config.concurrency)
+            .execute_search(&queries, 5, self.config.concurrency, self.config.cross_validate)
             .await?;
 
         let extracted = self.extractor_agent.extract_content(&search_results, task_desc).await?;

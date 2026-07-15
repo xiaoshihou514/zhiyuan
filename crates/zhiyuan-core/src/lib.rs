@@ -94,6 +94,7 @@ pub struct SearchQuery {
     pub query: String,
     pub max_results: usize,
     pub region: Option<String>,
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +212,8 @@ pub struct SearchConfig {
     pub google_cse_id: String,
     pub ddg_max_results: usize,
     pub request_timeout_secs: u64,
+    pub cross_validate: bool,
+    pub search_in_english: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +236,8 @@ pub struct ResearchSettings {
     pub cost_budget_usd: f64,
     pub long_report: bool,
     pub max_chapters: usize,
+    pub cross_validate: bool,
+    pub search_in_english: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

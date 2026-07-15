@@ -2,14 +2,14 @@
 
 ## 六类智能体
 
-| 智能体 | 职责 | 模型层级 | rig 组件 |
-|--------|------|---------|---------|
-| Planner | 分析查询、生成研究计划/子任务图 | Reasoning | rig::Agent + Tool |
-| Searcher | 构造搜索查询、调用搜索引擎 | Fast | rig::Agent + Tool(SearchEngine) |
-| Extractor | 抓取网页、提取结构化信息 | Fast | rig::Agent + Tool(HttpFetch) |
-| Synthesizer | 综合信息、更新知识库、生成摘要 | Main | rig::Agent + Tool(Memory) |
-| Verifier | 交叉验证关键声明、检测矛盾 | Reasoning | rig::Agent + Tool(CitationGraph) |
-| Writer | 渐进式报告构建、引用标注 | Main | rig::Agent + Tool(Memory, CitationGraph) |
+| 智能体      | 职责                            | 模型层级  | rig 组件                                 |
+| ----------- | ------------------------------- | --------- | ---------------------------------------- |
+| Planner     | 分析查询、生成研究计划/子任务图 | Reasoning | rig::Agent + Tool                        |
+| Searcher    | 构造搜索查询、调用搜索引擎      | Fast      | rig::Agent + Tool(SearchEngine)          |
+| Extractor   | 抓取网页、提取结构化信息        | Fast      | rig::Agent + Tool(HttpFetch)             |
+| Synthesizer | 综合信息、更新知识库、生成摘要  | Main      | rig::Agent + Tool(Memory)                |
+| Verifier    | 交叉验证关键声明、检测矛盾      | Reasoning | rig::Agent + Tool(CitationGraph)         |
+| Writer      | 渐进式报告构建、引用标注        | Main      | rig::Agent + Tool(Memory, CitationGraph) |
 
 ## 模型层级路由
 

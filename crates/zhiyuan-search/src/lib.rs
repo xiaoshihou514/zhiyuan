@@ -288,4 +288,51 @@ impl EnginePool {
     pub fn engine_count(&self) -> usize {
         self.engines.len()
     }
+
+    pub async fn search_all(&self, query: &SearchQuery) -> CoreResult<Vec<SearchResult>> {
+        use futures::future::join_all;
+
+        let futures: Vec<_> = self.engines.iter().map(|e| e.search(query)).collect();
+        let results = join_all(futures).await;
+
+        let mut seen: std::collections::HashMap<String, SearchResult> = std::collections::HashMap::new();
+        let mut engine_count = 0;
+
+        for (i, result) in results.iter().enumerate() {
+            match result {
+                Ok(results) if !results.is_empty() => {
+                    engine_count += 1;
+                    tracing::info!(
+                        engine = %self.engines[i].name(),
+                        count = %results.len(),
+                        "cross-search contributed"
+                    );
+                    for r in results {
+                        let key = r.url.clone();
+                        if !seen.contains_key(&key) {
+                            seen.insert(key, r.clone());
+                        }
+                    }
+                }
+                Ok(_) => {
+                    tracing::warn!(engine = %self.engines[i].name(), "cross-search returned empty");
+                }
+                Err(e) => {
+                    tracing::warn!(engine = %self.engines[i].name(), error = %e, "cross-search failed");
+                }
+            }
+        }
+
+        tracing::info!(
+            engine_count,
+            total_results = seen.len(),
+            "cross-search completed"
+        );
+
+        if seen.is_empty() {
+            return Err(zhiyuan_core::Error::Search("all engines returned no results".into()));
+        }
+
+        Ok(seen.into_values().collect())
+    }
 }

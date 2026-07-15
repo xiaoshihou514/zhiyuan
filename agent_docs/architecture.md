@@ -62,12 +62,12 @@
 
 ## Crate 设计
 
-| Crate | 职责 | 关键依赖 |
-|-------|------|---------|
-| `zhiyuan-core` | 核心类型、trait、错误 | serde, thiserror |
-| `zhiyuan-search` | 搜索引擎抽象 (Bing/DDG/Google) | reqwest, scraper |
-| `zhiyuan-extract` | 网页内容提取 | scraper, reqwest |
-| `zhiyuan-memory` | 三层记忆 (RocksDB) | rocksdb, serde |
-| `zhiyuan-orchestrator` | 编排层、质量评估 | petgraph, rig |
-| `zhiyuan-agents` | 六类智能体 | rig, zhiyuan-* |
-| `zhiyuan-robust` | 重试、规范化、故障隔离 | tokio, backoff |
+| Crate                  | 职责                           | 关键依赖         |
+| ---------------------- | ------------------------------ | ---------------- |
+| `zhiyuan-core`         | 核心类型、trait、错误          | serde, thiserror |
+| `zhiyuan-search`       | 搜索引擎抽象 (Bing/DDG/Google) | reqwest, scraper |
+| `zhiyuan-extract`      | 网页内容提取                   | scraper, reqwest |
+| `zhiyuan-memory`       | 三层记忆 (RocksDB)             | rocksdb, serde   |
+| `zhiyuan-orchestrator` | 编排层、质量评估               | petgraph, rig    |
+| `zhiyuan-agents`       | 六类智能体                     | rig, zhiyuan-*   |
+| `zhiyuan-robust`       | 重试、规范化、故障隔离         | tokio, backoff   |

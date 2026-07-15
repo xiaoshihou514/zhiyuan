@@ -47,6 +47,14 @@ struct Cli {
     #[arg(long, default_value = "4")]
     concurrency: usize,
 
+    /// 交叉搜索验证：多引擎并行搜索，自动去重合并
+    #[arg(long)]
+    cross_validate: bool,
+
+    /// 多语言搜索：自动补充英文查询以覆盖技术术语
+    #[arg(long)]
+    search_in_english: bool,
+
     /// 配置文件路径
     #[arg(short, long)]
     config: Option<String>,
@@ -189,6 +197,8 @@ fn load_config(cli: &Cli) -> anyhow::Result<ResearchConfig> {
             google_cse_id: std::env::var("GOOGLE_CSE_ID").unwrap_or_default(),
             ddg_max_results: 10,
             request_timeout_secs: 10,
+            cross_validate: cli.cross_validate,
+            search_in_english: cli.search_in_english,
         },
         llm: zhiyuan_core::LlmConfig {
             reasoning_model: std::env::var("REASONING_MODEL")
@@ -209,6 +219,8 @@ fn load_config(cli: &Cli) -> anyhow::Result<ResearchConfig> {
             cost_budget_usd: 1.0,
             long_report: cli.long_report,
             max_chapters: cli.max_chapters,
+            cross_validate: cli.cross_validate,
+            search_in_english: cli.search_in_english,
         },
         memory: zhiyuan_core::MemoryConfig {
             db_path: cli.data_dir.clone(),

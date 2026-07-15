@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use zhiyuan_core::{LlmClient, Result, SearchQuery, SearchResult};
+use zhiyuan_core::{LlmClient, Result, SearchQuery, SearchResult, ResearchSettings};
 use zhiyuan_search::EnginePool;
 
 pub struct SearcherAgent {
@@ -13,10 +13,24 @@ impl SearcherAgent {
         Self { llm, engine_pool }
     }
 
-    pub async fn generate_queries(&self, task_description: &str, context: &str) -> Result<Vec<String>> {
-        let system = "你是一个搜索专家。你的任务是根据研究子任务，生成最有效的搜索查询。
-生成的查询应该精准、具体，能够直接获取到与研究问题相关的信息。
-输出 JSON 格式的搜索查询数组。";
+    pub async fn generate_queries(
+        &self,
+        task_description: &str,
+        context: &str,
+        settings: &ResearchSettings,
+    ) -> Result<Vec<String>> {
+        let language_instruction = if settings.search_in_english {
+            "注意：对于技术术语、英文专有名词等场景，请同时生成英文查询。\
+             例如中文查询\"Rust 异步编程最佳实践\"可补充英文查询\"Rust async programming best practices\"。"
+        } else {
+            "所有查询使用与研究任务相同的语言。"
+        };
+
+        let system = format!(
+            "你是一个搜索专家。你的任务是根据研究子任务，生成最有效的搜索查询。\
+             生成的查询应该精准、具体，能够直接获取到与研究问题相关的信息。\
+             输出 JSON 格式的搜索查询数组。{language_instruction}"
+        );
 
         let user = format!(
             "研究子任务：{task_description}
@@ -25,7 +39,7 @@ impl SearcherAgent {
 输出 JSON 格式：{{\"queries\": [\"query1\", \"query2\"]}}"
         );
 
-        let response = self.llm.prompt(system, &user).await?;
+        let response = self.llm.prompt(&system, &user).await?;
         let parsed: serde_json::Value = serde_json::from_str(&response)
             .map_err(|e| zhiyuan_core::Error::Agent(format!("Failed to parse searcher output: {e}")))?;
 
@@ -42,6 +56,7 @@ impl SearcherAgent {
         queries: &[String],
         max_results: usize,
         concurrency: usize,
+        cross_validate: bool,
     ) -> Result<Vec<SearchResult>> {
         let semaphore = Arc::new(Semaphore::new(concurrency));
         let mut handles = Vec::new();
@@ -57,8 +72,14 @@ impl SearcherAgent {
                     query: q.clone(),
                     max_results,
                     region: None,
+                    language: None,
                 };
-                let result = engine.search(&sq).await;
+
+                let result = if cross_validate {
+                    engine.search_all(&sq).await
+                } else {
+                    engine.search(&sq).await
+                };
                 (q, result)
             }));
         }

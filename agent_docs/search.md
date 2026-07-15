@@ -12,11 +12,11 @@ pub trait SearchEngine: Send + Sync {
 
 ## 支持引擎
 
-| 引擎 | 方式 | API Key | 实现 |
-|------|------|---------|------|
-| Bing | Azure Bing Search API v7 | 是 | reqwest + serde |
-| DuckDuckGo | HTML 爬取 lite 版 | 否 | reqwest + scraper |
-| Google | Custom Search JSON API | 是 | reqwest + serde |
+| 引擎       | 方式                     | API Key | 实现              |
+| ---------- | ------------------------ | ------- | ----------------- |
+| Bing       | Azure Bing Search API v7 | 是      | reqwest + serde   |
+| DuckDuckGo | HTML 爬取 lite 版        | 否      | reqwest + scraper |
+| Google     | Custom Search JSON API   | 是      | reqwest + serde   |
 
 ## 故障切换策略
 
