@@ -38,6 +38,8 @@ anyhow = "1"
 dotenvy = "0.15"
 toml = "0.8"
 dirs = "6"
+typst = "0.14.2"
+typst-pdf = "0.14.2"
 chrono = "0.4"
 
 [[bin]]
