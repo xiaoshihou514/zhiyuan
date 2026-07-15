@@ -1,4 +1,5 @@
 use uuid::Uuid;
+use crate::util::extract_json;
 use zhiyuan_core::{ExtractedContent, Finding, LlmClient, ResearchDirection, Result};
 
 pub struct SynthesizerAgent {
@@ -22,9 +23,9 @@ impl SynthesizerAgent {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let system = "你是一个信息综合专家。你的任务是将多个信息源的提取内容进行综合，
-生成简洁而有深度的研究发现摘要。你需要识别关键信息、发现信息间的关联和矛盾。
-输出 JSON 格式的发现。";
+        let system = "你是一个信息综合专家。你的任务是将多个信息源的提取内容进行综合，\
+生成简洁而有深度的研究发现摘要。你需要识别关键信息、发现信息间的关联和矛盾。\
+只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
 
         let user = format!(
             "以下是多个信息源提取的内容，请综合这些信息，生成 2-4 个研究发现摘要。
@@ -36,7 +37,8 @@ impl SynthesizerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response)
+        let cleaned = extract_json(&response);
+        let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .unwrap_or(serde_json::json!({"findings": []}));
 
         let findings: Vec<Finding> = parsed["findings"]
@@ -71,9 +73,9 @@ impl SynthesizerAgent {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let system = "你是一个研究方向识别专家。你的任务是分析当前已知信息，
-找出知识盲区和值得进一步深入探索的方向。
-输出 JSON 格式的方向列表。";
+        let system = "你是一个研究方向识别专家。你的任务是分析当前已知信息，\
+找出知识盲区和值得进一步深入探索的方向。\
+只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
 
         let user = format!(
             "研究问题：{research_question}
@@ -88,7 +90,8 @@ impl SynthesizerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response)
+        let cleaned = extract_json(&response);
+        let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .unwrap_or(serde_json::json!({"directions": []}));
 
         let directions: Vec<ResearchDirection> = parsed["directions"]

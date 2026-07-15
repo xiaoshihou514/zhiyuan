@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use crate::util::extract_json;
 use zhiyuan_core::{ExtractedContent, LlmClient, Result, SearchResult};
 use zhiyuan_extract::ContentExtractor;
 
@@ -15,8 +16,9 @@ impl ExtractorAgent {
     pub async fn extract_content(&self, results: &[SearchResult], context: &str) -> Result<Vec<ExtractedContent>> {
         let mut extracted = Vec::new();
 
-        let system = "你是一个信息提取专家。你的任务是从搜索结果中选择最有价值的网页进行抓取，
-并提取与研究目标相关的关键信息。";
+        let system = "你是一个信息提取专家。你的任务是从搜索结果中选择最有价值的网页进行抓取，\
+并提取与研究目标相关的关键信息。\
+只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
 
         let results_list: String = results
             .iter()
@@ -32,7 +34,8 @@ impl ExtractorAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response)
+        let cleaned = extract_json(&response);
+        let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .unwrap_or(serde_json::json!({"urls": []}));
 
         let selected_urls: Vec<String> = parsed["urls"]

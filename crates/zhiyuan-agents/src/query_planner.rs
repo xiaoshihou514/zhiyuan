@@ -1,3 +1,4 @@
+use crate::util::extract_json;
 use zhiyuan_core::{LlmClient, Result};
 
 pub struct QueryPlannerAgent {
@@ -23,7 +24,7 @@ impl QueryPlannerAgent {
 3. 如果子任务含有大量英文技术词汇，应生成部分英文查询以获取更准确的结果
 4. 如果子任务完全是中文领域内容，则使用中文查询
 
-输出 JSON 格式的搜索查询数组。";
+只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
 
         let user = format!(
             "研究子任务：{task_description}
@@ -33,8 +34,11 @@ impl QueryPlannerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response)
-            .map_err(|e| zhiyuan_core::Error::Agent(format!("解析查询规划输出失败: {e}")))?;
+        let cleaned = extract_json(&response);
+        let parsed: serde_json::Value = serde_json::from_str(cleaned)
+            .map_err(|e| zhiyuan_core::Error::Agent(
+                format!("解析查询规划输出失败: {e}\n原始响应(前200字符): {}", response.chars().take(200).collect::<String>())
+            ))?;
 
         let queries: Vec<String> = parsed["queries"]
             .as_array()

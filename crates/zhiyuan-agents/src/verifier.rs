@@ -1,4 +1,5 @@
 use uuid::Uuid;
+use crate::util::extract_json;
 use zhiyuan_core::{CitationEdge, CitationGraph, Claim, LlmClient, Result, SourceNode};
 
 pub struct VerifierAgent {
@@ -23,8 +24,9 @@ impl VerifierAgent {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let system = "你是一个事实核查专家。你的任务是交叉验证研究发现中的关键声明，
-检查是否有矛盾信息，并评估每个声明的可信度。";
+        let system = "你是一个事实核查专家。你的任务是交叉验证研究发现中的关键声明，\
+检查是否有矛盾信息，并评估每个声明的可信度。\
+只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
 
         let user = format!(
             "请验证以下声明与来源之间的支持或矛盾关系。
@@ -41,7 +43,8 @@ impl VerifierAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response)
+        let cleaned = extract_json(&response);
+        let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .unwrap_or(serde_json::json!({"edges": []}));
 
         let edges: Vec<CitationEdge> = parsed["edges"]
