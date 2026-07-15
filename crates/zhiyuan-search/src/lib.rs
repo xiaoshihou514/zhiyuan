@@ -280,9 +280,9 @@ impl EnginePool {
     pub fn from_config(config: &zhiyuan_core::SearchConfig) -> Self {
         let mut engines: Vec<Box<dyn SearchEngine>> = Vec::new();
 
-        engines.push(Box::new(BingEngine::new(config.ddg_max_results)));
-        engines.push(Box::new(GoogleEngine::new(config.ddg_max_results)));
-        engines.push(Box::new(DuckDuckGoEngine::new(config.ddg_max_results)));
+        engines.push(Box::new(BingEngine::new(config.max_results)));
+        engines.push(Box::new(GoogleEngine::new(config.max_results)));
+        engines.push(Box::new(DuckDuckGoEngine::new(config.max_results)));
 
         Self::new(engines)
     }

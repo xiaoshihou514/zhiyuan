@@ -196,7 +196,7 @@ pub struct ResearchConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
-    pub ddg_max_results: usize,
+    pub max_results: usize,
     pub request_timeout_secs: u64,
 }
 
