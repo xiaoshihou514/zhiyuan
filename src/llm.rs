@@ -57,14 +57,11 @@ impl LlmClient for OpenaiLlm {
             temperature: Some(0.3),
         };
 
-        let resp = self
-            .client
-            .post(&self.endpoint)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| Error::Llm(format!("LLM request failed: {e}")))?;
+        let mut req = self.client.post(&self.endpoint).json(&body);
+        if !self.api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+        let resp = req.send().await.map_err(|e| Error::Llm(format!("LLM request failed: {e}")))?;
 
         let status = resp.status();
         if !status.is_success() {

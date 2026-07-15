@@ -36,16 +36,22 @@ impl ExtractorAgent {
         let response = self.llm.prompt(system, &user).await?;
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or(serde_json::json!({"urls": []}));
+            .unwrap_or_else(|e| {
+                tracing::warn!(err = %e, "extractor JSON parse failed, using empty fallback");
+                serde_json::json!({"urls": []})
+            });
 
         let selected_urls: Vec<String> = parsed["urls"]
             .as_array()
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default();
 
+        tracing::info!(selected = %selected_urls.len(), total_results = %results.len(), "extractor selected URLs");
+
         let selected: Vec<&SearchResult> = results.iter().filter(|r| selected_urls.contains(&r.url)).take(5).collect();
 
         for result in selected {
+            tracing::debug!(url = %result.url, "extracting content");
             match self.extractor.extract(result, context).await {
                 Ok(content) => extracted.push(content),
                 Err(e) => tracing::warn!("Extraction failed for {}: {e}", result.url),
@@ -53,12 +59,15 @@ impl ExtractorAgent {
         }
 
         if extracted.is_empty() {
+            tracing::warn!("no content extracted from selected URLs, falling back to first 3 results");
             for result in results.iter().take(3) {
                 if let Ok(content) = self.extractor.extract(result, context).await {
                     extracted.push(content);
                 }
             }
         }
+
+        tracing::info!(extracted = %extracted.len(), "extraction completed");
 
         Ok(extracted)
     }

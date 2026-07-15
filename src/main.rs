@@ -71,10 +71,7 @@ async fn main() -> anyhow::Result<()> {
     let engine_pool = Arc::new(EnginePool::from_config(&config.search));
 
     if config.llm.api_key.is_empty() {
-        anyhow::bail!(
-            "未配置 LLM API 密钥。请创建配置文件，在 [llm] 中设置 api_key。\n\
-             参考：https://platform.openai.com/api-keys"
-        );
+        tracing::warn!("LLM API 密钥为空，将不发送 Authorization 请求头");
     }
     let llm: Box<dyn LlmClient> = Box::new(OpenaiLlm::new(
         config.llm.api_key.clone(),

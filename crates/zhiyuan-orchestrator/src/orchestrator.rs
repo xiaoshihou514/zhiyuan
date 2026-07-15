@@ -159,6 +159,13 @@ impl ResearchOrchestrator {
             },
             &query.full_query(),
         );
+        tracing::info!(
+            overall = %quality.overall,
+            coverage = %quality.coverage,
+            reliability = %quality.reliability,
+            depth = %quality.depth,
+            "final quality score"
+        );
 
         let report = if self.config.long_report && plan.outline.is_some() {
             self.build_long_report(&query, &state, &quality, &plan).await?

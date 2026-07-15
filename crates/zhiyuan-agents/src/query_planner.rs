@@ -34,6 +34,7 @@ impl QueryPlannerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
+        tracing::debug!(response_len = %response.len(), "query planner response");
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .map_err(|e| zhiyuan_core::Error::Agent(
@@ -44,6 +45,8 @@ impl QueryPlannerAgent {
             .as_array()
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default();
+
+        tracing::info!(count = %queries.len(), ?queries, "generated search queries");
 
         Ok(queries)
     }

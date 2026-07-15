@@ -45,7 +45,10 @@ impl VerifierAgent {
         let response = self.llm.prompt(system, &user).await?;
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or(serde_json::json!({"edges": []}));
+            .unwrap_or_else(|e| {
+                tracing::warn!(err = %e, "verifier JSON parse failed, using empty fallback");
+                serde_json::json!({"edges": []})
+            });
 
         let edges: Vec<CitationEdge> = parsed["edges"]
             .as_array()
@@ -64,6 +67,8 @@ impl VerifierAgent {
                     .collect()
             })
             .unwrap_or_default();
+
+        tracing::info!(claims = %claims.len(), sources = %sources.len(), edges = %edges.len(), "verification completed");
 
         Ok(CitationGraph {
             claims: claims.to_vec(),

@@ -39,7 +39,10 @@ impl SynthesizerAgent {
         let response = self.llm.prompt(system, &user).await?;
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or(serde_json::json!({"findings": []}));
+            .unwrap_or_else(|e| {
+                tracing::warn!(err = %e, "synthesizer JSON parse failed, using empty fallback");
+                serde_json::json!({"findings": []})
+            });
 
         let findings: Vec<Finding> = parsed["findings"]
             .as_array()
@@ -58,6 +61,8 @@ impl SynthesizerAgent {
                     .collect()
             })
             .unwrap_or_default();
+
+        tracing::info!(findings = %findings.len(), "synthesized findings");
 
         Ok(findings)
     }
@@ -92,7 +97,10 @@ impl SynthesizerAgent {
         let response = self.llm.prompt(system, &user).await?;
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or(serde_json::json!({"directions": []}));
+            .unwrap_or_else(|e| {
+                tracing::warn!(err = %e, "directions JSON parse failed, using empty fallback");
+                serde_json::json!({"directions": []})
+            });
 
         let directions: Vec<ResearchDirection> = parsed["directions"]
             .as_array()

@@ -36,6 +36,8 @@ impl SearcherAgent {
         let semaphore = Arc::new(Semaphore::new(concurrency));
         let mut handles = Vec::new();
 
+        tracing::info!(query_count = %queries.len(), mode = if cross_validate { "cross-validate" } else { "fallback" }, "executing search");
+
         for query_str in queries {
             let permit = semaphore.clone().acquire_owned().await.unwrap();
             let engine = self.engine_pool.clone();
@@ -62,11 +64,15 @@ impl SearcherAgent {
         let mut all_results = Vec::new();
         for handle in handles {
             match handle.await {
-                Ok((_q, Ok(results))) => all_results.extend(results),
+                Ok((_q, Ok(results))) => {
+                    tracing::debug!(query = %_q, count = %results.len(), "search returned results");
+                    all_results.extend(results);
+                }
                 Ok((_q, Err(e))) => tracing::warn!("Search failed for query '{_q}': {e}"),
                 Err(e) => tracing::warn!("Search task panicked: {e}"),
             }
         }
+        tracing::info!(total = %all_results.len(), "search completed");
         Ok(all_results)
     }
 }
