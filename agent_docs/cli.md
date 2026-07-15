@@ -19,11 +19,10 @@ cargo run -- --query "<研究问题>" [选项]
 | `--breadth`           | usize  | `4`              | 搜索广度（每轮并行查询数）                  |
 | `--depth`             | usize  | `3`              | 搜索深度（递归层数）                        |
 | `--concurrency`       | usize  | `4`              | 任务并发数                                  |
-| `--cross-validate` | bool | `false` | 交叉搜索验证：多引擎并行搜索，自动去重合并 |
-| `--search-in-english` | bool | `false` | 多语言搜索：自动补充英文查询以覆盖技术术语 |
-| `-c`, `--config` | String | — | 配置文件路径（默认: `config/default.toml`） |
+| `--cross-validate` | bool | `false` | 交叉验证：多引擎并行搜索 + LLM 事实核查，过滤不可靠内容 |
+| `-c`, `--config` | String | — | 配置文件路径（默认: `~/.config/zhiyuan.toml` 或 `./zhiyuan.toml`） |
 | `-d`, `--data-dir` | String | `~/.cache/zhiyuan/<query_hash>` | RocksDB 数据目录（默认由查询内容哈希自动生成） |
-| `-o`, `--output` | String | — | 输出 JSON 文件路径（不指定则打印到 stdout） |
+| `-o`, `--output` | String | — | 输出 PDF 文件路径（不指定则打印到 stdout；自动追加 `.pdf` 扩展名） |
 
 ### 示例
 
@@ -41,25 +40,19 @@ cargo run -- --query "光伏电池技术路线对比" --long-report --max-chapte
 cargo run -- --query "RISC-V AI 加速器架构" \
   --quality-threshold 0.9 --max-iterations 20 --breadth 8 --concurrency 6
 
-# 输出到文件
-cargo run -- --query "WebAssembly 在边缘计算中的应用" -o report.json
+# 输出 PDF 文件
+cargo run -- --query "WebAssembly 在边缘计算中的应用" -o report.pdf
 ```
 
 ## 环境变量
 
 | 变量              | 必填   | 默认值           | 描述                                             |
 | ----------------- | ------ | ---------------- | ------------------------------------------------ |
-| `OPENAI_API_KEY`  | **是** | —                | OpenAI API 密钥                                  |
-| `MAIN_MODEL`      | 否     | `gpt-4o`         | 主模型（智能体使用）                             |
-| `REASONING_MODEL` | 否     | `gpt-4o`         | 推理模型                                         |
-| `FAST_MODEL`      | 否     | `gpt-4o-mini`    | 快速模型                                         |
-| `BING_API_KEY`    | 否*    | —                | Bing Search API 密钥                             |
-| `BING_ENDPOINT`   | 否     | Bing v7 默认端点 | Bing 搜索端点                                    |
-| `GOOGLE_API_KEY`  | 否*    | —                | Google Custom Search API 密钥                    |
-| `GOOGLE_CSE_ID`   | 否*    | —                | Google CSE 搜索引擎 ID                           |
+| `OPENAI_API_KEY`  | 否     | —                | 覆盖配置文件中 [llm] 的 api_key                  |
+| `OPENAI_BASE_URL` | 否     | —                | 覆盖配置文件中 [llm] 的 base_url                 |
 | `RUST_LOG`        | 否     | `info`           | 日志级别 (`error`/`warn`/`info`/`debug`/`trace`) |
 
-> *至少配置一个搜索引擎（Bing / Google / DuckDuckGo），DuckDuckGo 无需 API 密钥。
+搜索引擎无需 API 密钥——Bing、Google、DuckDuckGo 均通过 HTML 解析获取结果。
 
 `.env` 文件会被自动加载（如果存在）。
 
@@ -94,72 +87,50 @@ cargo run -- --query "WebAssembly 在边缘计算中的应用" -o report.json
 短报告模式打印章节标题 + Markdown 内容 + 质量评分。
 长报告模式打印完整报告标题 + 各章节内容 + 质量评分。
 
-### JSON 文件（`-o` 指定）
+### PDF 文件（`-o` 指定）
 
-```json
-{
-  "query_id": "uuid",
-  "title": "研究问题 - 研究报告",
-  "sections": [
-    {
-      "heading": "章节标题",
-      "content": "Markdown 内容",
-      "citations": ["https://..."]
-    }
-  ],
-  "citation_graph": { "claims": [], "sources": [], "edges": [] },
-  "quality_score": {
-    "coverage": 0.85,
-    "reliability": 0.72,
-    "freshness": 0.68,
-    "depth": 0.79,
-    "overall": 0.77
-  },
-  "generated_at": "2026-07-15T12:00:00Z"
-}
-```
+使用 typst 库编译生成 PDF，自动扫描系统字体目录获取字体支持。
+PDF 包含标题页、章节正文（Markdown→Typst 自动转换）、参考文献列表、质量评分概览。
 
-## 交叉搜索验证 (`--cross-validate`)
+## 交叉验证 (`--cross-validate`)
 
-默认使用回退链模式（依次尝试各引擎，直到成功）。启用 `--cross-validate` 后改为并行模式：
+默认使用回退链模式（依次尝试各引擎，找到结果即返回）。启用 `--cross-validate` 后：
 
-1. 所有配置的搜索引擎**同时**执行同一查询
-2. 收集各引擎返回的结果，按 URL 去重（保留首个出现的版本）
-3. 日志记录每个引擎的贡献数量和最终去重后的总数
+1. 所有搜索引擎**并行**执行查询，记录每个结果被多少个独立引擎发现
+2. 结果按跨引擎覆盖数排序（多引擎共同发现的排前面）
+3. 使用 LLM 对每条研究发现进行事实核查，过滤掉不可靠或仅有单一来源的内容
 
 ```
 [info] cross-search contributed engine=bing count=10
 [info] cross-search contributed engine=google count=8
 [info] cross-search contributed engine=duckduckgo count=7
 [info] cross-search completed engine_count=3 total_results=18
+[info] 交叉验证: 2/12 个发现被过滤
 ```
 
-适用场景：需要最大召回率的研究主题，不依赖单一引擎的覆盖范围。
+适用场景：对信息准确性要求高的研究，需要多重验证保障事实可靠性。
 
-## 多语言搜索 (`--search-in-english`)
+## 自适应搜索查询规划
 
-启用时，查询生成阶段 LLM 会收到提示："对于技术术语、英文专有名词等场景，请同时生成英文查询"。
+查询生成由 `QueryPlannerAgent` 独立完成，它会根据子任务内容自适应决定查询语言策略：
 
-生成的查询可能是中英文混合的，例如：
+- 识别子任务中的技术术语、英文专有名词、框架/库名称
+- 自动判断是否需要混合使用中英文查询
+- 对含大量英文术语的任务自动生成英文查询
 
-```
-研究子任务：Rust 异步运行时对比
-生成查询：
-- "Rust tokio vs async-std vs smol 性能对比 2025"
-- "Rust async runtime benchmark comparison 2025"
+例如，对于"Rust 异步运行时对比"，可能会自动生成：
+- "Rust tokio vs async-std vs smol 性能对比"
+- "Rust async runtime benchmark comparison"
 - "tokio async-std smol feature comparison"
-```
 
-搜索阶段按正常流程执行，多语言查询各自返回结果后统一合并去重。
-
-适用场景：技术类研究（编程语言、框架、论文）、含大量英文专有名词的课题。
+纯中文主题则全部使用中文查询，无需手动指定 `--search-in-english`。
 
 ### 组合使用
 
 ```bash
-# 最大召回率：交叉验证 + 多语言
+# 交叉验证 + 自适应查询
 cargo run -- --query "大模型量化技术最新进展" \
-  --cross-validate --search-in-english --breadth 6
+  --cross-validate --breadth 6
 ```
 
 ## 语义记忆

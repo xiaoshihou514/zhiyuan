@@ -1,4 +1,5 @@
 mod planner;
+mod query_planner;
 mod searcher;
 mod extractor;
 mod synthesizer;
@@ -6,6 +7,7 @@ mod verifier;
 mod writer;
 
 pub use planner::*;
+pub use query_planner::*;
 pub use searcher::*;
 pub use extractor::*;
 pub use synthesizer::*;

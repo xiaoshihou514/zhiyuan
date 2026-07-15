@@ -1,8 +1,11 @@
 [search]
-ddg_max_results = 10
+# 搜索引擎配置（Bing/Google/DuckDuckGo 均通过 HTML 解析，无需 API 密钥）
+ddg_max_results = 10           # 每个引擎最大结果数
 request_timeout_secs = 10
 
 [llm]
+api_key = ""               # 必填，API 密钥
+base_url = "https://api.openai.com/v1"  # API 地址（OpenAI 兼容）
 reasoning_model = "o3-mini"
 reasoning_provider = "openai"
 main_model = "gpt-4o"

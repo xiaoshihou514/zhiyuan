@@ -1,54 +1,29 @@
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use zhiyuan_core::{LlmClient, Result, SearchQuery, SearchResult, ResearchSettings};
+use zhiyuan_core::{LlmClient, Result, SearchQuery, SearchResult};
 use zhiyuan_search::EnginePool;
 
+use crate::QueryPlannerAgent;
+
 pub struct SearcherAgent {
-    llm: Box<dyn LlmClient>,
     engine_pool: Arc<EnginePool>,
+    query_planner: QueryPlannerAgent,
 }
 
 impl SearcherAgent {
     pub fn new(llm: Box<dyn LlmClient>, engine_pool: Arc<EnginePool>) -> Self {
-        Self { llm, engine_pool }
+        Self {
+            engine_pool,
+            query_planner: QueryPlannerAgent::new(llm),
+        }
     }
 
     pub async fn generate_queries(
         &self,
         task_description: &str,
         context: &str,
-        settings: &ResearchSettings,
     ) -> Result<Vec<String>> {
-        let language_instruction = if settings.search_in_english {
-            "注意：对于技术术语、英文专有名词等场景，请同时生成英文查询。\
-             例如中文查询\"Rust 异步编程最佳实践\"可补充英文查询\"Rust async programming best practices\"。"
-        } else {
-            "所有查询使用与研究任务相同的语言。"
-        };
-
-        let system = format!(
-            "你是一个搜索专家。你的任务是根据研究子任务，生成最有效的搜索查询。\
-             生成的查询应该精准、具体，能够直接获取到与研究问题相关的信息。\
-             输出 JSON 格式的搜索查询数组。{language_instruction}"
-        );
-
-        let user = format!(
-            "研究子任务：{task_description}
-已有上下文：{context}
-请生成 2-4 个具体的搜索查询语句，每个查询应该从不同角度覆盖该子任务。
-输出 JSON 格式：{{\"queries\": [\"query1\", \"query2\"]}}"
-        );
-
-        let response = self.llm.prompt(&system, &user).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response)
-            .map_err(|e| zhiyuan_core::Error::Agent(format!("Failed to parse searcher output: {e}")))?;
-
-        let queries: Vec<String> = parsed["queries"]
-            .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_default();
-
-        Ok(queries)
+        self.query_planner.plan_queries(task_description, context).await
     }
 
     pub async fn execute_search(

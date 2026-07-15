@@ -1,7 +1,8 @@
 use clap::Parser;
 use std::io::{BufRead, Write};
+use std::path::Path;
 use std::sync::Arc;
-use zhiyuan_core::{LlmClient, ResearchConfig, ResearchQuery, ResearchSettings};
+use zhiyuan_core::{LlmClient, ResearchConfig, ResearchQuery};
 use zhiyuan_orchestrator::ResearchOrchestrator;
 use zhiyuan_search::EnginePool;
 
@@ -53,11 +54,7 @@ struct Cli {
     #[arg(long)]
     cross_validate: bool,
 
-    /// 多语言搜索：自动补充英文查询以覆盖技术术语
-    #[arg(long)]
-    search_in_english: bool,
-
-    /// 配置文件路径
+    /// 配置文件路径（默认先找 ~/.config/zhiyuan.toml，再找 ./zhiyuan.toml）
     #[arg(short, long)]
     config: Option<String>,
 
@@ -65,7 +62,7 @@ struct Cli {
     #[arg(short, long)]
     data_dir: Option<String>,
 
-    /// 输出文件
+    /// 输出文件（PDF 路径）
     #[arg(short, long)]
     output: Option<String>,
 }
@@ -91,11 +88,21 @@ async fn main() -> anyhow::Result<()> {
         format!("{home}/.cache/zhiyuan/{:016x}", hash)
     });
 
-    let config = load_config(&cli, &data_dir)?;
+    let config = load_config(&cli)?;
 
     let engine_pool = Arc::new(EnginePool::from_config(&config.search));
 
-    let llm: Box<dyn LlmClient> = Box::new(OpenaiLlm::from_env()?);
+    if config.llm.api_key.is_empty() {
+        anyhow::bail!(
+            "未配置 LLM API 密钥。请创建配置文件，在 [llm] 中设置 api_key。\n\
+             参考：https://platform.openai.com/api-keys"
+        );
+    }
+    let llm: Box<dyn LlmClient> = Box::new(OpenaiLlm::new(
+        config.llm.api_key.clone(),
+        config.llm.base_url.clone(),
+        config.llm.main_model.clone(),
+    ));
 
     let clarification = if cli.interactive {
         let planner = zhiyuan_agents::PlannerAgent::new(llm.clone_box());
@@ -193,61 +200,39 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn load_config(cli: &Cli, data_dir: &str) -> anyhow::Result<ResearchConfig> {
-    let config_path = cli
-        .config
-        .clone()
-        .unwrap_or_else(|| "config/default.toml".into());
+fn load_config(cli: &Cli) -> anyhow::Result<ResearchConfig> {
+    let config_path = match &cli.config {
+        Some(path) => Path::new(path).to_path_buf(),
+        None => {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let user_config = Path::new(&home).join(".config/zhiyuan.toml");
+            if user_config.exists() {
+                user_config
+            } else {
+                let local = Path::new("zhiyuan.toml");
+                if local.exists() {
+                    local.to_path_buf()
+                } else {
+                    anyhow::bail!(
+                        "未找到配置文件。请创建 ~/.config/zhiyuan.toml 或 ./zhiyuan.toml。\n\
+                         参考项目中的 zhiyuan.toml.example"
+                    );
+                }
+            }
+        }
+    };
 
-    let config_str = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let config_str = std::fs::read_to_string(&config_path)
+        .map_err(|e| anyhow::anyhow!("读取配置文件失败 {}: {e}", config_path.display()))?;
 
-    let mut config: ResearchConfig = toml::from_str(&config_str).unwrap_or_else(|_| ResearchConfig {
-        search: zhiyuan_core::SearchConfig {
-            bing_api_key: std::env::var("BING_API_KEY").unwrap_or_default(),
-            bing_endpoint: std::env::var("BING_ENDPOINT")
-                .unwrap_or_else(|_| "https://api.bing.microsoft.com/v7.0/search".into()),
-            google_api_key: std::env::var("GOOGLE_API_KEY").unwrap_or_default(),
-            google_cse_id: std::env::var("GOOGLE_CSE_ID").unwrap_or_default(),
-            ddg_max_results: 10,
-            request_timeout_secs: 10,
-            cross_validate: cli.cross_validate,
-            search_in_english: cli.search_in_english,
-        },
-        llm: zhiyuan_core::LlmConfig {
-            reasoning_model: std::env::var("REASONING_MODEL")
-                .unwrap_or_else(|_| "gpt-4o".into()),
-            reasoning_provider: std::env::var("REASONING_PROVIDER")
-                .unwrap_or_else(|_| "openai".into()),
-            main_model: std::env::var("MAIN_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
-            main_provider: std::env::var("MAIN_PROVIDER").unwrap_or_else(|_| "openai".into()),
-            fast_model: std::env::var("FAST_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into()),
-            fast_provider: std::env::var("FAST_PROVIDER").unwrap_or_else(|_| "openai".into()),
-        },
-        research: ResearchSettings {
-            max_iterations: cli.max_iterations,
-            quality_threshold: cli.quality_threshold,
-            breadth: cli.breadth,
-            depth: cli.depth,
-            concurrency: cli.concurrency,
-            cost_budget_usd: 1.0,
-            long_report: cli.long_report,
-            max_chapters: cli.max_chapters,
-            cross_validate: cli.cross_validate,
-            search_in_english: cli.search_in_english,
-        },
-        memory: zhiyuan_core::MemoryConfig {
-            db_path: data_dir.to_string(),
-        },
-    });
+    let mut config: ResearchConfig = toml::from_str(&config_str)
+        .map_err(|e| anyhow::anyhow!("解析配置文件失败: {e}"))?;
 
-    if let Ok(key) = std::env::var("BING_API_KEY") {
-        config.search.bing_api_key = key;
+    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+        config.llm.api_key = key;
     }
-    if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
-        config.search.google_api_key = key;
-    }
-    if let Ok(key) = std::env::var("GOOGLE_CSE_ID") {
-        config.search.google_cse_id = key;
+    if let Ok(url) = std::env::var("OPENAI_BASE_URL") {
+        config.llm.base_url = url;
     }
 
     Ok(config)

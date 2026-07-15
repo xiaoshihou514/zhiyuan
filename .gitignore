@@ -2,3 +2,4 @@
 *.pdf
 zhiyuan_data/
 .env
+zhiyuan.toml

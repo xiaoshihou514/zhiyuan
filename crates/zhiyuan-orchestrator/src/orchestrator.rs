@@ -258,7 +258,7 @@ impl ResearchOrchestrator {
 
         let queries = self
             .searcher
-            .generate_queries(task_desc, &context, &self.config)
+            .generate_queries(task_desc, &context)
             .await?;
         if queries.is_empty() {
             return Ok(vec![]);
@@ -274,6 +274,12 @@ impl ResearchOrchestrator {
             .synthesizer
             .synthesize(&extracted, Uuid::new_v4(), iteration)
             .await?;
+
+        let findings = if self.config.cross_validate {
+            self.cross_validate_findings(&findings, task_desc).await?
+        } else {
+            findings
+        };
 
         for f in &findings {
             if let Some(ref memory) = self.memory {
@@ -321,6 +327,66 @@ impl ResearchOrchestrator {
                 );
             }
         }
+    }
+
+    async fn cross_validate_findings(
+        &self,
+        findings: &[Finding],
+        task_description: &str,
+    ) -> Result<Vec<Finding>> {
+        if findings.is_empty() {
+            return Ok(findings.to_vec());
+        }
+
+        let mut verified = Vec::new();
+        for finding in findings {
+            let system = "\
+你是一个事实核查专家。判断以下研究发现是否准确可靠。
+
+要求：
+1. 检查是否存在事实错误或矛盾
+2. 判断是否有多个独立来源支持
+3. 如果发现包含推测或不可靠信息，应拒绝
+
+仅回复 TRUE 或 FALSE，不要其他内容。";
+
+            let user = format!(
+                "研究任务：{task_description}\n\n\
+                 发现：{}\n\n\
+                 来源数量：{}\n\
+                 来源：{}\n\n\
+                 该发现是否可靠？TRUE 或 FALSE",
+                finding.content,
+                finding.sources.len(),
+                finding.sources.join("\n"),
+            );
+
+            match self.llm.prompt(system, &user).await {
+                Ok(response) => {
+                    let trimmed = response.trim().to_uppercase();
+                    if trimmed.starts_with("TRUE") {
+                        verified.push(finding.clone());
+                    } else {
+                        tracing::warn!(
+                            finding_id = %finding.id,
+                            sources = %finding.sources.len(),
+                            "交叉验证未通过"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("交叉验证 LLM 调用失败: {e}，保留该发现");
+                    verified.push(finding.clone());
+                }
+            }
+        }
+
+        let removed = findings.len() - verified.len();
+        if removed > 0 {
+            tracing::info!("交叉验证: {}/{} 个发现被过滤", removed, findings.len());
+        }
+
+        Ok(verified)
     }
 
     async fn build_or_update_report(

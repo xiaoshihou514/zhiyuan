@@ -11,35 +11,30 @@ pub struct OpenaiLlm {
 }
 
 impl OpenaiLlm {
-    pub fn from_env() -> anyhow::Result<Self> {
-        let api_key = std::env::var("OPENAI_API_KEY")
-            .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not set"))?;
+    pub fn new(api_key: String, base_url: String, model: String) -> Self {
+        let endpoint = if base_url.ends_with('/') {
+            format!("{}chat/completions", base_url)
+        } else {
+            format!("{}/chat/completions", base_url)
+        };
 
-        let model = std::env::var("MAIN_MODEL").unwrap_or_else(|_| "gpt-4o".into());
+        // Allow overriding endpoint directly for non-OpenAI-compatible APIs
+        let endpoint = if base_url.contains("chat/completions") {
+            base_url
+        } else {
+            endpoint
+        };
 
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()?;
-
-        Ok(Self {
-            client,
-            api_key,
-            model,
-            endpoint: "https://api.openai.com/v1/chat/completions".into(),
-        })
-    }
-
-    #[allow(dead_code)]
-    pub fn new(api_key: String, model: String) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(120))
             .build()
             .expect("Failed to create HTTP client");
+
         Self {
             client,
             api_key,
             model,
-            endpoint: "https://api.openai.com/v1/chat/completions".into(),
+            endpoint,
         }
     }
 }
@@ -69,18 +64,18 @@ impl LlmClient for OpenaiLlm {
             .json(&body)
             .send()
             .await
-            .map_err(|e| Error::Llm(format!("OpenAI request failed: {e}")))?;
+            .map_err(|e| Error::Llm(format!("LLM request failed: {e}")))?;
 
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(Error::Llm(format!("OpenAI returned {status}: {text}")));
+            return Err(Error::Llm(format!("LLM returned {status}: {text}")));
         }
 
         let chat_resp: ChatResponse = resp
             .json()
             .await
-            .map_err(|e| Error::Llm(format!("OpenAI parse failed: {e}")))?;
+            .map_err(|e| Error::Llm(format!("LLM parse failed: {e}")))?;
 
         let content = chat_resp
             .choices
