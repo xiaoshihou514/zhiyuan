@@ -9,8 +9,6 @@ use zhiyuan_search::EnginePool;
 mod llm;
 use llm::OpenaiLlm;
 
-mod pdf;
-
 #[derive(Parser)]
 #[command(name = "zhiyuan", version, about = "致远 - 深度研究框架")]
 struct Cli {
