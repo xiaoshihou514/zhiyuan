@@ -59,9 +59,9 @@ struct Cli {
     #[arg(short, long)]
     config: Option<String>,
 
-    /// 数据目录（记忆存储）
-    #[arg(short, long, default_value = "./zhiyuan_data")]
-    data_dir: String,
+    /// 数据目录（记忆存储，默认 ~/.cache/zhiyuan/<query_hash>）
+    #[arg(short, long)]
+    data_dir: Option<String>,
 
     /// 输出文件
     #[arg(short, long)]
@@ -80,7 +80,16 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     dotenvy::dotenv().ok();
 
-    let config = load_config(&cli)?;
+    let data_dir = cli.data_dir.clone().unwrap_or_else(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        cli.query.hash(&mut hasher);
+        let hash = hasher.finish();
+        format!("{home}/.cache/zhiyuan/{:016x}", hash)
+    });
+
+    let config = load_config(&cli, &data_dir)?;
 
     let engine_pool = Arc::new(EnginePool::from_config(&config.search));
 
@@ -123,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
         llm,
         engine_pool,
         config.research,
-        Some(cli.data_dir),
+        Some(data_dir),
     ).await;
 
     let query = ResearchQuery {
@@ -180,7 +189,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn load_config(cli: &Cli) -> anyhow::Result<ResearchConfig> {
+fn load_config(cli: &Cli, data_dir: &str) -> anyhow::Result<ResearchConfig> {
     let config_path = cli
         .config
         .clone()
@@ -223,7 +232,7 @@ fn load_config(cli: &Cli) -> anyhow::Result<ResearchConfig> {
             search_in_english: cli.search_in_english,
         },
         memory: zhiyuan_core::MemoryConfig {
-            db_path: cli.data_dir.clone(),
+            db_path: data_dir.to_string(),
         },
     });
 

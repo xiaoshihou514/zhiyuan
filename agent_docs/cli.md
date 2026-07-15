@@ -19,9 +19,11 @@ cargo run -- --query "<研究问题>" [选项]
 | `--breadth`           | usize  | `4`              | 搜索广度（每轮并行查询数）                  |
 | `--depth`             | usize  | `3`              | 搜索深度（递归层数）                        |
 | `--concurrency`       | usize  | `4`              | 任务并发数                                  |
-| `-c`, `--config`      | String | —                | 配置文件路径（默认: `config/default.toml`） |
-| `-d`, `--data-dir`    | String | `./zhiyuan_data` | RocksDB 数据目录（记忆存储）                |
-| `-o`, `--output`      | String | —                | 输出 JSON 文件路径（不指定则打印到 stdout） |
+| `--cross-validate` | bool | `false` | 交叉搜索验证：多引擎并行搜索，自动去重合并 |
+| `--search-in-english` | bool | `false` | 多语言搜索：自动补充英文查询以覆盖技术术语 |
+| `-c`, `--config` | String | — | 配置文件路径（默认: `config/default.toml`） |
+| `-d`, `--data-dir` | String | `~/.cache/zhiyuan/<query_hash>` | RocksDB 数据目录（默认由查询内容哈希自动生成） |
+| `-o`, `--output` | String | — | 输出 JSON 文件路径（不指定则打印到 stdout） |
 
 ### 示例
 
@@ -115,6 +117,49 @@ cargo run -- --query "WebAssembly 在边缘计算中的应用" -o report.json
   },
   "generated_at": "2026-07-15T12:00:00Z"
 }
+```
+
+## 交叉搜索验证 (`--cross-validate`)
+
+默认使用回退链模式（依次尝试各引擎，直到成功）。启用 `--cross-validate` 后改为并行模式：
+
+1. 所有配置的搜索引擎**同时**执行同一查询
+2. 收集各引擎返回的结果，按 URL 去重（保留首个出现的版本）
+3. 日志记录每个引擎的贡献数量和最终去重后的总数
+
+```
+[info] cross-search contributed engine=bing count=10
+[info] cross-search contributed engine=google count=8
+[info] cross-search contributed engine=duckduckgo count=7
+[info] cross-search completed engine_count=3 total_results=18
+```
+
+适用场景：需要最大召回率的研究主题，不依赖单一引擎的覆盖范围。
+
+## 多语言搜索 (`--search-in-english`)
+
+启用时，查询生成阶段 LLM 会收到提示："对于技术术语、英文专有名词等场景，请同时生成英文查询"。
+
+生成的查询可能是中英文混合的，例如：
+
+```
+研究子任务：Rust 异步运行时对比
+生成查询：
+- "Rust tokio vs async-std vs smol 性能对比 2025"
+- "Rust async runtime benchmark comparison 2025"
+- "tokio async-std smol feature comparison"
+```
+
+搜索阶段按正常流程执行，多语言查询各自返回结果后统一合并去重。
+
+适用场景：技术类研究（编程语言、框架、论文）、含大量英文专有名词的课题。
+
+### 组合使用
+
+```bash
+# 最大召回率：交叉验证 + 多语言
+cargo run -- --query "大模型量化技术最新进展" \
+  --cross-validate --search-in-english --breadth 6
 ```
 
 ## 语义记忆
