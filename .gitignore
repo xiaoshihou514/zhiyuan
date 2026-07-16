@@ -3,3 +3,6 @@
 zhiyuan_data/
 .env
 zhiyuan.toml
+searxng/data/
+searxng/core-config/limiter.toml
+*.html

@@ -1,0 +1,13 @@
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: zhiyuan-searxng
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./core-config:/etc/searxng:rw,z
+      - ./data:/var/cache/searxng:rw,z
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888
+      - SEARXNG_PORT=8888
+      - FORCE_OWNERSHIP=true

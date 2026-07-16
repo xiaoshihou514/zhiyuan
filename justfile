@@ -46,3 +46,25 @@ test: unit
 # 发布构建
 release:
     cargo build --release
+
+# ────────────── SearXNG ──────────────
+
+# 启动 SearXNG（容器已存在则跳过）
+searxng-up:
+    docker compose -f searxng/docker-compose.yml up -d
+
+# 停止 SearXNG
+searxng-down:
+    docker compose -f searxng/docker-compose.yml down
+
+# 重启 SearXNG
+searxng-restart:
+    docker compose -f searxng/docker-compose.yml restart
+
+# 查看 SearXNG 日志
+searxng-logs:
+    docker compose -f searxng/docker-compose.yml logs -f
+
+# SearXNG 运行状态
+searxng-status:
+    docker compose -f searxng/docker-compose.yml ps

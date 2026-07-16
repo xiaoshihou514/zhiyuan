@@ -1,0 +1,35 @@
+use_default_settings: true
+server:
+  secret_key: "zhiyuan-dev-secret-change-in-prod-12345678"
+  limiter: false
+  image_proxy: true
+search:
+  formats:
+    - html
+    - json
+  safe_search: 0
+  autocomplete: ""
+ui:
+  static_use_hash: true
+  default_theme: simple
+  default_locale: zh-Hans-CN
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 15.0
+engines:
+  - name: baidu
+    disabled: false
+    timeout: 5.0
+  - name: sogou
+    disabled: false
+    timeout: 5.0
+  - name: google
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: bing
+    disabled: true
+  - name: startpage
+    disabled: true
