@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use zhiyuan_core::{Error, LlmClient, Result};
+use zhiyuan_core::{LlmClient, Result};
 
 pub struct OpenaiLlm {
     client: reqwest::Client,
@@ -85,38 +85,51 @@ impl LlmClient for OpenaiLlm {
             temperature: Some(0.3),
         };
 
-        let mut req = self.client.post(&self.endpoint).json(&body);
-        if !self.api_key.is_empty() {
-            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        loop {
+            let mut req = self.client.post(&self.endpoint).json(&body);
+            if !self.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", self.api_key));
+            }
+
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if !status.is_success() {
+                        let text = resp.text().await.unwrap_or_default();
+                        self.log(&format!("[{now}] ERROR {status}: {text}，重试..."));
+                        tracing::warn!("LLM 返回 {status}: {text}，2 秒后重试...");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        continue;
+                    }
+
+                    match resp.json::<ChatResponse>().await {
+                        Ok(chat_resp) => {
+                            if let Some(content) = chat_resp
+                                .choices
+                                .into_iter()
+                                .next()
+                                .and_then(|c| c.message.content)
+                            {
+                                let truncated: String = content.chars().take(500).collect();
+                                self.log(&format!("[{now}] RESPONSE({} chars): {truncated}", content.len()));
+                                return Ok(content);
+                            }
+                            self.log(&format!("[{now}] 空响应内容，重试..."));
+                            tracing::warn!("LLM 返回空响应内容，2 秒后重试...");
+                        }
+                        Err(e) => {
+                            self.log(&format!("[{now}] JSON 解析失败: {e}，重试..."));
+                            tracing::warn!("LLM 响应 JSON 解析失败: {e}，2 秒后重试...");
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.log(&format!("[{now}] 请求失败: {e}，重试..."));
+                    tracing::warn!("LLM 请求失败: {e}，2 秒后重试...");
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| Error::Llm(format!("LLM request failed: {e}")))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            self.log(&format!("[{now}] ERROR {status}: {text}"));
-            return Err(Error::Llm(format!("LLM returned {status}: {text}")));
-        }
-
-        let chat_resp: ChatResponse = resp
-            .json()
-            .await
-            .map_err(|e| Error::Llm(format!("LLM parse failed: {e}")))?;
-
-        let content = chat_resp
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|c| c.message.content)
-            .ok_or_else(|| Error::Llm("No response content".into()))?;
-
-        let truncated: String = content.chars().take(500).collect();
-        self.log(&format!("[{now}] RESPONSE({} chars): {truncated}", content.len()));
-
-        Ok(content)
     }
 
     fn clone_box(&self) -> Box<dyn LlmClient> {

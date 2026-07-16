@@ -88,9 +88,13 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    let log_dir = Path::new(&home).join(".local/share/zhiyuan");
-    std::fs::create_dir_all(&log_dir)?;
-    let log_path = log_dir.join(format!("{:016x}.log", hash));
+    let base_dir = Path::new(&home).join(".local/share/zhiyuan");
+    let session_dir = base_dir.join(format!("{:016x}", hash));
+    std::fs::create_dir_all(&session_dir)?;
+    let searches_dir = session_dir.join("searches");
+    std::fs::create_dir_all(&searches_dir)?;
+
+    let log_path = session_dir.join("session.log");
     let log_file = std::fs::File::create(&log_path)
         .map_err(|e| anyhow::anyhow!("创建日志文件失败 {}: {e}", log_path.display()))?;
 
@@ -117,7 +121,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("查询" = %cli.query, "哈希" = %format!("{:016x}", hash), "会话开始");
 
     let data_dir = format!("{home}/.cache/zhiyuan/{:016x}", hash);
-    let llm_log = log_dir.join(format!("{:016x}_llm.log", hash));
+    let llm_log = session_dir.join("llm.log");
 
     let mut config = load_config()?;
     config.research.long_report = cli.long;
@@ -127,10 +131,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let engine_pool = if cli.long {
-        Arc::new(EnginePool::from_config(&config.search))
+        Arc::new(EnginePool::from_config(&config.search, Some(searches_dir)))
     } else {
         Arc::new(EnginePool::new(vec![
-            Box::new(BingEngine::new(config.search.max_results)),
+            Box::new(BingEngine::new(config.search.max_results).with_searches_dir(searches_dir)),
         ]))
     };
 

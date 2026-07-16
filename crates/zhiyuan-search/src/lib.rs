@@ -48,6 +48,7 @@ pub trait SearchEngine: Send + Sync {
 pub struct BingEngine {
     client: reqwest::Client,
     max_results: usize,
+    searches_dir: Option<std::path::PathBuf>,
 }
 
 impl BingEngine {
@@ -56,7 +57,16 @@ impl BingEngine {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to create HTTP client");
-        Self { client, max_results }
+        Self {
+            client,
+            max_results,
+            searches_dir: None,
+        }
+    }
+
+    pub fn with_searches_dir(mut self, dir: std::path::PathBuf) -> Self {
+        self.searches_dir = Some(dir);
+        self
     }
 }
 
@@ -83,6 +93,16 @@ impl SearchEngine for BingEngine {
             .text()
             .await
             .map_err(|e| zhiyuan_core::Error::Search(format!("Bing read failed: {e}")))?;
+
+        if let Some(dir) = &self.searches_dir {
+            std::fs::create_dir_all(dir).ok();
+            let safe_name = query.query.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(100).collect::<String>();
+            let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros()).unwrap_or(0);
+            let filepath = dir.join(format!("{}_{}.html", ts, safe_name));
+            if let Err(e) = std::fs::write(&filepath, &html) {
+                tracing::warn!("保存 Bing HTML 失败 {}: {e}", filepath.display());
+            }
+        }
 
         let doc = Html::parse_document(&html);
         let algo_sel = Selector::parse("li.b_algo")
@@ -381,9 +401,14 @@ impl EnginePool {
         }
     }
 
-    pub fn from_config(config: &zhiyuan_core::SearchConfig) -> Self {
+    pub fn from_config(config: &zhiyuan_core::SearchConfig, searches_dir: Option<std::path::PathBuf>) -> Self {
+        let bing = if let Some(ref dir) = searches_dir {
+            BingEngine::new(config.max_results).with_searches_dir(dir.join("bing"))
+        } else {
+            BingEngine::new(config.max_results)
+        };
         let engines: Vec<Box<dyn SearchEngine>> = vec![
-            Box::new(BingEngine::new(config.max_results)),
+            Box::new(bing),
             Box::new(StartpageEngine::new(config.max_results)),
             Box::new(DuckDuckGoEngine::new(config.max_results)),
         ];
@@ -396,8 +421,9 @@ impl EnginePool {
         for &idx in &self.fallback_order {
             match self.engines[idx].search(query).await {
                 Ok(results) if !results.is_empty() => {
-                    let results = filter_relevant(&query.query, dedup_results(results));
-                    tracing::info!("引擎" = %self.engines[idx].name(), "数量" = %results.len(), "搜索成功");
+                    let deduped = dedup_results(results);
+                    tracing::info!("引擎" = %self.engines[idx].name(), "数量" = %deduped.len(), "结果" = ?deduped.iter().map(|r| format!("{} ({})", r.title, r.url)).collect::<Vec<_>>(), "搜索返回");
+                    let results = filter_relevant(&query.query, deduped);
                     return Ok(results);
                 }
                 Ok(_) => {
