@@ -96,11 +96,10 @@ impl SearchEngine for BingEngine {
         let q = normalize_query(&query.query);
         let html = self
             .client
-            .get("https://cn.bing.com/search")
+            .get("https://www.bing.com/search")
             .query(&[
                 ("q", q.as_str()),
                 ("setlang", "zh-Hans"),
-                ("ensearch", "1"),
                 ("FORM", "BESBTB"),
             ])
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
