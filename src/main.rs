@@ -12,7 +12,7 @@ use zhiyuan_core::{
     LlmClient, ProgressReporter, ProgressUpdate, ResearchConfig, ResearchPlan, ResearchQuery,
 };
 use zhiyuan_orchestrator::ResearchOrchestrator;
-use zhiyuan_search::{BingEngine, EnginePool};
+use zhiyuan_search::EnginePool;
 
 mod llm;
 use llm::OpenaiLlm;
@@ -130,13 +130,7 @@ async fn main() -> anyhow::Result<()> {
         config.research.cross_validate = true;
     }
 
-    let engine_pool = if cli.long {
-        Arc::new(EnginePool::from_config(&config.search, Some(searches_dir)))
-    } else {
-        Arc::new(EnginePool::new(vec![
-            Box::new(BingEngine::new(config.search.max_results).with_searches_dir(searches_dir)),
-        ]))
-    };
+    let engine_pool = Arc::new(EnginePool::from_config(&config.search, Some(searches_dir)));
 
     if config.llm.api_key.is_empty() {
         tracing::warn!("LLM API 密钥为空，将不发送 Authorization 请求头");

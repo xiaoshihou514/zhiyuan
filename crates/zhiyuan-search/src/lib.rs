@@ -436,9 +436,9 @@ impl EnginePool {
             BingEngine::new(config.max_results)
         };
         let engines: Vec<Box<dyn SearchEngine>> = vec![
-            Box::new(bing),
-            Box::new(StartpageEngine::new(config.max_results)),
             Box::new(DuckDuckGoEngine::new(config.max_results)),
+            Box::new(StartpageEngine::new(config.max_results)),
+            Box::new(bing),
         ];
 
         Self::new(engines)
