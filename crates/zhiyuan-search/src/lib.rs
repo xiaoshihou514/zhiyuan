@@ -71,6 +71,7 @@ impl BingEngine {
     pub fn new(max_results: usize) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
+            .cookie_store(true)
             .build()
             .expect("Failed to create HTTP client");
         Self {
@@ -94,6 +95,17 @@ impl SearchEngine for BingEngine {
 
     async fn search(&self, query: &SearchQuery) -> CoreResult<Vec<SearchResult>> {
         let q = normalize_query(&query.query);
+
+        if let Err(e) = self
+            .client
+            .get("https://www.bing.com")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .send()
+            .await
+        {
+            tracing::warn!("Bing Cookie 预热请求失败: {e}");
+        }
+
         let html = self
             .client
             .get("https://www.bing.com/search")
