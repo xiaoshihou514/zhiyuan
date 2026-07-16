@@ -1,5 +1,6 @@
 [search]
 max_results = 10 # 每个搜索引擎最大结果数
+searxng_url = "http://localhost:8888" # 自建 SearXNG 实例地址
 
 [llm]
 api_key = ""

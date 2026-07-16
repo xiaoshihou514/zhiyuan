@@ -232,6 +232,12 @@ pub struct PdfConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
     pub max_results: usize,
+    #[serde(default = "default_searxng_url")]
+    pub searxng_url: String,
+}
+
+fn default_searxng_url() -> String {
+    "http://localhost:8888".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -345,6 +345,87 @@ impl SearchEngine for DuckDuckGoEngine {
     }
 }
 
+pub struct SearXngEngine {
+    client: reqwest::Client,
+    base_url: String,
+    max_results: usize,
+}
+
+impl SearXngEngine {
+    pub fn new(base_url: &str, max_results: usize) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("Failed to create HTTP client");
+        Self {
+            client,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            max_results,
+        }
+    }
+}
+
+#[async_trait]
+impl SearchEngine for SearXngEngine {
+    fn name(&self) -> &'static str {
+        "searxng"
+    }
+
+    async fn search(&self, query: &SearchQuery) -> CoreResult<Vec<SearchResult>> {
+        let resp = self
+            .client
+            .get(format!("{}/search", self.base_url))
+            .query(&[
+                ("q", &query.query),
+                ("format", &"json".to_string()),
+                ("categories", &"general".to_string()),
+                ("language", &"all".to_string()),
+                ("safesearch", &"0".to_string()),
+            ])
+            .send()
+            .await
+            .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 请求失败: {e}")))?;
+
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 读取响应失败: {e}")))?;
+
+        #[derive(serde::Deserialize)]
+        struct SearxngResponse {
+            results: Vec<SearxngResult>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct SearxngResult {
+            title: String,
+            url: String,
+            #[serde(default)]
+            content: String,
+            #[serde(default)]
+            engine: String,
+        }
+
+        let parsed: SearxngResponse = serde_json::from_str(&body)
+            .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 解析 JSON 失败: {e}")))?;
+
+        let results: Vec<SearchResult> = parsed
+            .results
+            .into_iter()
+            .take(self.max_results)
+            .map(|r| SearchResult {
+                title: r.title,
+                url: r.url,
+                snippet: r.content,
+                source: format!("searxng/{}", r.engine),
+                fetch_time: Utc::now(),
+            })
+            .collect();
+
+        Ok(results)
+    }
+}
+
 fn normalize_url(url: &str) -> String {
     let url = url.trim().trim_end_matches('/').trim_end_matches('#');
     if let Some(hash_pos) = url.find('#') {
@@ -429,16 +510,9 @@ impl EnginePool {
         }
     }
 
-    pub fn from_config(config: &zhiyuan_core::SearchConfig, searches_dir: Option<std::path::PathBuf>) -> Self {
-        let bing = if let Some(ref dir) = searches_dir {
-            BingEngine::new(config.max_results).with_searches_dir(dir.join("bing"))
-        } else {
-            BingEngine::new(config.max_results)
-        };
+    pub fn from_config(config: &zhiyuan_core::SearchConfig, _searches_dir: Option<std::path::PathBuf>) -> Self {
         let engines: Vec<Box<dyn SearchEngine>> = vec![
-            Box::new(DuckDuckGoEngine::new(config.max_results)),
-            Box::new(StartpageEngine::new(config.max_results)),
-            Box::new(bing),
+            Box::new(SearXngEngine::new(&config.searxng_url, config.max_results)),
         ];
 
         Self::new(engines)
