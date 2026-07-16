@@ -39,6 +39,22 @@ fn decode_ddg_url(href: &str) -> String {
     href.to_string()
 }
 
+fn normalize_query(query: &str) -> String {
+    let mut out = String::with_capacity(query.len() + 8);
+    let mut prev_cjk = false;
+    for c in query.chars() {
+        let is_cjk = ('\u{4e00}'..='\u{9fff}').contains(&c)
+            || ('\u{3400}'..='\u{4dbf}').contains(&c)
+            || ('\u{f900}'..='\u{faff}').contains(&c);
+        if !out.is_empty() && prev_cjk != is_cjk {
+            out.push(' ');
+        }
+        out.push(c);
+        prev_cjk = is_cjk;
+    }
+    out
+}
+
 #[async_trait]
 pub trait SearchEngine: Send + Sync {
     async fn search(&self, query: &SearchQuery) -> CoreResult<Vec<SearchResult>>;
@@ -77,11 +93,12 @@ impl SearchEngine for BingEngine {
     }
 
     async fn search(&self, query: &SearchQuery) -> CoreResult<Vec<SearchResult>> {
+        let q = normalize_query(&query.query);
         let html = self
             .client
             .get("https://cn.bing.com/search")
             .query(&[
-                ("q", query.query.as_str()),
+                ("q", q.as_str()),
                 ("setlang", "zh-Hans"),
                 ("ensearch", "1"),
                 ("FORM", "BESBTB"),
@@ -96,7 +113,7 @@ impl SearchEngine for BingEngine {
 
         if let Some(dir) = &self.searches_dir {
             std::fs::create_dir_all(dir).ok();
-            let safe_name = query.query.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(100).collect::<String>();
+            let safe_name = normalize_query(&query.query).chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(100).collect::<String>();
             let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros()).unwrap_or(0);
             let filepath = dir.join(format!("{}_{}.html", ts, safe_name));
             if let Err(e) = std::fs::write(&filepath, &html) {
@@ -365,12 +382,13 @@ fn filter_relevant(query: &str, results: Vec<SearchResult>) -> Vec<SearchResult>
     if keywords.is_empty() {
         return results;
     }
+    let need = if keywords.len() >= 3 { 2 } else { 1 };
     let fallback = results.clone();
     let filtered: Vec<_> = results
         .into_iter()
         .filter(|r| {
             let text = format!("{} {}", r.title, r.snippet).to_lowercase();
-            keywords.iter().any(|k| text.contains(k))
+            keywords.iter().filter(|k| text.contains(*k)).count() >= need
         })
         .collect();
     if filtered.is_empty() { fallback } else { filtered }
