@@ -98,7 +98,7 @@ impl SearchEngine for BingEngine {
 
         if let Err(e) = self
             .client
-            .get("https://www.bing.com")
+            .get("https://cn.bing.com")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .send()
             .await
@@ -108,11 +108,10 @@ impl SearchEngine for BingEngine {
 
         let html = self
             .client
-            .get("https://www.bing.com/search")
+            .get("https://cn.bing.com/search")
             .query(&[
                 ("q", q.as_str()),
                 ("setlang", "zh-Hans"),
-                ("FORM", "BESBTB"),
             ])
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .send()
@@ -124,7 +123,7 @@ impl SearchEngine for BingEngine {
 
         if let Some(dir) = &self.searches_dir {
             std::fs::create_dir_all(dir).ok();
-            let safe_name = normalize_query(&query.query).chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(100).collect::<String>();
+            let safe_name = q.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(100).collect::<String>();
             let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros()).unwrap_or(0);
             let filepath = dir.join(format!("{}_{}.html", ts, safe_name));
             if let Err(e) = std::fs::write(&filepath, &html) {
