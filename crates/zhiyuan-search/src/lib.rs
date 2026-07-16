@@ -213,20 +213,12 @@ impl SearchEngine for StartpageEngine {
 }
 
 pub struct DuckDuckGoEngine {
-    client: reqwest::Client,
     max_results: usize,
 }
 
 impl DuckDuckGoEngine {
     pub fn new(max_results: usize) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .expect("Failed to create HTTP client");
-        Self {
-            client,
-            max_results,
-        }
+        Self { max_results }
     }
 }
 
@@ -237,47 +229,72 @@ impl SearchEngine for DuckDuckGoEngine {
     }
 
     async fn search(&self, query: &SearchQuery) -> CoreResult<Vec<SearchResult>> {
-        let html = self
-            .client
-            .get("https://html.duckduckgo.com/html/")
-            .query(&[("q", &query.query)])
-            .header("User-Agent", "Mozilla/5.0 (compatible; ZhiyuanResearch/0.1)")
-            .send()
-            .await
-            .map_err(|e| zhiyuan_core::Error::Search(format!("DDG request failed: {e}")))?
-            .text()
-            .await
-            .map_err(|e| zhiyuan_core::Error::Search(format!("DDG read failed: {e}")))?;
+        let ua_list = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ];
 
-        let doc = Html::parse_document(&html);
-        let link_sel =
-            Selector::parse("a.result__a").map_err(|_| zhiyuan_core::Error::Search("Selector parse error".into()))?;
-        let snippet_sel =
-            Selector::parse("a.result__snippet").map_err(|_| zhiyuan_core::Error::Search("Selector parse error".into()))?;
+        for ua in &ua_list {
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("Failed to create HTTP client");
 
-        let results: Vec<SearchResult> = doc
-            .select(&link_sel)
-            .zip(doc.select(&snippet_sel))
-            .take(self.max_results)
-            .map(|(a, s)| {
-                let title = a.text().collect::<String>().trim().to_string();
-                let url = decode_ddg_url(
-                    a.value()
-                        .attr("href")
-                        .unwrap_or("")
-                );
-                let snippet = s.text().collect::<String>().trim().to_string();
-                SearchResult {
-                    title,
-                    url,
-                    snippet,
-                    source: "duckduckgo".into(),
-                    fetch_time: Utc::now(),
-                }
-            })
-            .collect();
+            let resp = match client
+                .get("https://html.duckduckgo.com/html/")
+                .query(&[("q", &query.query)])
+                .header("User-Agent", *ua)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
 
-        Ok(results)
+            let html = match resp.text().await {
+                Ok(h) => h,
+                Err(_) => continue,
+            };
+
+            let doc = Html::parse_document(&html);
+            let link_sel = match Selector::parse("a.result__a") {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let snippet_sel = match Selector::parse("a.result__snippet") {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            let results: Vec<SearchResult> = doc
+                .select(&link_sel)
+                .zip(doc.select(&snippet_sel))
+                .take(self.max_results)
+                .map(|(a, s)| {
+                    let title = a.text().collect::<String>().trim().to_string();
+                    let url = decode_ddg_url(
+                        a.value()
+                            .attr("href")
+                            .unwrap_or("")
+                    );
+                    let snippet = s.text().collect::<String>().trim().to_string();
+                    SearchResult {
+                        title,
+                        url,
+                        snippet,
+                        source: "duckduckgo".into(),
+                        fetch_time: Utc::now(),
+                    }
+                })
+                .collect();
+
+            if !results.is_empty() {
+                return Ok(results);
+            }
+        }
+
+        Ok(vec![])
     }
 }
 
@@ -290,10 +307,39 @@ fn normalize_url(url: &str) -> String {
     }
 }
 
-fn filter_relevant(query: &str, results: Vec<SearchResult>) -> Vec<SearchResult> {
-    let keywords: Vec<String> = query
-        .split_whitespace()
+fn extract_keywords(query: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut prev_ascii = None;
+    for c in query.chars() {
+        let is_ascii = c.is_ascii_alphanumeric();
+        match prev_ascii {
+            Some(prev) if prev != is_ascii && !current.is_empty() => {
+                words.push(std::mem::take(&mut current));
+            }
+            _ => {}
+        }
+        if !c.is_whitespace() {
+            current.push(c);
+        } else if !current.is_empty() {
+            words.push(std::mem::take(&mut current));
+        }
+        if c.is_ascii_alphanumeric() || c.is_alphabetic() {
+            prev_ascii = Some(is_ascii);
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+        .into_iter()
         .filter(|w| w.chars().count() > 2)
+        .collect()
+}
+
+fn filter_relevant(query: &str, results: Vec<SearchResult>) -> Vec<SearchResult> {
+    let keywords: Vec<String> = extract_keywords(query)
+        .into_iter()
         .map(|w| w.to_lowercase())
         .collect();
     if keywords.is_empty() {
@@ -549,5 +595,64 @@ mod tests {
     fn test_decode_bing_url_no_u_param() {
         let url = "https://www.bing.com/ck/a?!&&p=xxx&ntb=1";
         assert_eq!(decode_bing_url(url), url);
+    }
+
+    fn make_result(title: &str) -> SearchResult {
+        SearchResult {
+            title: title.into(),
+            url: "https://example.com".into(),
+            snippet: "".into(),
+            source: "bing".into(),
+            fetch_time: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_extract_keywords_cjk_mixed() {
+        let kws = extract_keywords("国产AUTOSAR工具链 厂商 产品 版本");
+        assert!(kws.contains(&"AUTOSAR".to_string()), "应包含 AUTOSAR");
+        assert!(kws.contains(&"工具链".to_string()), "应包含 工具链");
+        assert!(!kws.contains(&"国产".to_string()), "国产 ≤2 字符应被过滤");
+    }
+
+    #[test]
+    fn test_filter_keeps_relevant_generic() {
+        let results = vec![
+            make_result("国产AUTOSAR工具链的技术亮点与实际应用 - 知乎"),
+            make_result("AUTOSAR CP三大工具链全景对比 - 知乎"),
+            make_result("AUTOSAR基础软件选型指南"),
+            make_result("汽车电子AUTOSAR架构深度解析"),
+        ];
+        // 搜索词跟结果标题完全不同，但关键词 AUTOSAR 应该命中
+        let filtered = filter_relevant("汽车嵌入式 AUTOSAR 软件平台 调研", results);
+        assert_eq!(filtered.len(), 4, "含 AUTOSAR 关键词的结果应全部保留");
+    }
+
+    #[test]
+    fn test_filter_removes_irrelevant_generic() {
+        let results = vec![
+            make_result("AUTOSAR Classic and Adaptive | Vector"),
+            make_result("国产电影大全 - 最新国产片推荐"),
+            make_result("国产剧免费在线观看_国产剧排行榜"),
+            make_result("The Ultimate Guide to AUTOSAR - Acsia"),
+        ];
+        let filtered = filter_relevant("汽车电子 AUTOSAR 供应商 对比", results);
+        assert_eq!(filtered.len(), 2, "只应保留 2 条 AUTOSAR 结果");
+        let titles: Vec<&str> = filtered.iter().map(|r| r.title.as_str()).collect();
+        assert!(titles.iter().any(|t| t.contains("Vector")));
+        assert!(titles.iter().any(|t| t.contains("Acsia")));
+        assert!(!titles.iter().any(|t| t.contains("电影")));
+        assert!(!titles.iter().any(|t| t.contains("免费在线观看")));
+    }
+
+    #[test]
+    fn test_filter_fallback_on_empty() {
+        let results = vec![
+            make_result("国产AUTOSAR三巨头"),
+            make_result("something completely unrelated"),
+        ];
+        // 搜索词不含任何 >2 字符的关键词时不过滤
+        let filtered = filter_relevant("ab", results);
+        assert_eq!(filtered.len(), 2, "无有效关键词时原样返回");
     }
 }
