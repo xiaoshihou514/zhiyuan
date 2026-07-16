@@ -34,7 +34,7 @@ impl QueryPlannerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        tracing::debug!(response_len = %response.len(), "query planner response");
+        tracing::debug!(response_len = %response.len(), "查询规划器响应");
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .map_err(|e| zhiyuan_core::Error::Agent(
@@ -43,10 +43,22 @@ impl QueryPlannerAgent {
 
         let queries: Vec<String> = parsed["queries"]
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
 
-        tracing::info!(count = %queries.len(), ?queries, "generated search queries");
+        // 去重（保留首次出现顺序）
+        let mut seen = std::collections::HashSet::new();
+        let queries: Vec<String> = queries
+            .into_iter()
+            .filter(|q| seen.insert(q.to_lowercase()))
+            .collect();
+
+        tracing::info!("数量" = %queries.len(), ?queries, "已生成搜索查询");
 
         Ok(queries)
     }

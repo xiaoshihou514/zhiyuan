@@ -48,7 +48,7 @@ impl PlannerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        tracing::debug!(response_len = %response.len(), "planner short plan response");
+        tracing::debug!(response_len = %response.len(), "规划器短报告响应");
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .map_err(|e| zhiyuan_core::Error::Agent(
@@ -87,7 +87,7 @@ impl PlannerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        tracing::debug!(response_len = %response.len(), "planner long plan response");
+        tracing::debug!(response_len = %response.len(), "规划器长报告响应");
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .map_err(|e| zhiyuan_core::Error::Agent(

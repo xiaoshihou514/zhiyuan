@@ -27,6 +27,7 @@ pub struct ResearchOrchestrator {
     quality_evaluator: QualityEvaluator,
     config: ResearchSettings,
     llm: Box<dyn LlmClient>,
+    progress: Option<Box<dyn ProgressReporter>>,
 }
 
 impl ResearchOrchestrator {
@@ -35,6 +36,7 @@ impl ResearchOrchestrator {
         engine_pool: Arc<EnginePool>,
         config: ResearchSettings,
         memory_path: Option<String>,
+        progress: Option<Box<dyn ProgressReporter>>,
     ) -> Self {
         let extractor = Arc::new(WebExtractor::new());
         let memory = memory_path.and_then(|p| MemoryManager::open(p).ok());
@@ -43,22 +45,40 @@ impl ResearchOrchestrator {
             memory,
             planner: PlannerAgent::new(llm.clone_box()),
             searcher: SearcherAgent::new(llm.clone_box(), engine_pool),
-            extractor_agent: ExtractorAgent::new(llm.clone_box(), extractor),
+            extractor_agent: ExtractorAgent::new(extractor),
             synthesizer: SynthesizerAgent::new(llm.clone_box()),
             writer: WriterAgent::new(llm.clone_box()),
             verifier: VerifierAgent::new(llm.clone_box()),
             quality_evaluator: QualityEvaluator,
             config,
             llm,
+            progress,
         }
     }
 
-    pub async fn research(&self, query: ResearchQuery) -> Result<ResearchReport> {
-        tracing::info!(query = %query.query, "starting research");
+    fn report(&self, update: ProgressUpdate) {
+        if let Some(ref p) = self.progress {
+            p.report(update);
+        }
+    }
 
-        let plan = self.planner.create_plan(&query, &self.config).await?;
-        tracing::info!(tasks = %plan.sub_tasks.len(), "plan created");
+    pub async fn research(
+        &self,
+        query: ResearchQuery,
+        pregenerated_plan: Option<ResearchPlan>,
+    ) -> Result<ResearchReport> {
+        tracing::info!("查询" = %query.query, "开始研究");
+
+        let plan = match pregenerated_plan {
+            Some(p) => p,
+            None => self.planner.create_plan(&query, &self.config).await?,
+        };
+        tracing::info!("任务" = %plan.sub_tasks.len(), "研究计划已生成");
         self.save_to_memory("plan", &serde_json::to_string(&plan).unwrap_or_default());
+        self.report(ProgressUpdate::Started {
+            max_iterations: self.config.max_iterations,
+            total_tasks: plan.sub_tasks.len(),
+        });
 
         let existing_findings = self
             .memory
@@ -67,7 +87,7 @@ impl ResearchOrchestrator {
             .unwrap_or_default();
 
         if !existing_findings.is_empty() {
-            tracing::info!(count = %existing_findings.len(), "found relevant findings in semantic memory");
+            tracing::info!("数量" = %existing_findings.len(), "在语义记忆中找到了相关发现");
         }
 
         let mut state = IterationState {
@@ -86,21 +106,39 @@ impl ResearchOrchestrator {
 
         let semaphore = Arc::new(Semaphore::new(self.config.concurrency.max(1)));
 
+        let mut empty_rounds = 0;
+
         for iteration in 1..=self.config.max_iterations {
-            tracing::info!(iteration, findings = %state.findings.len(), "starting iteration");
+            tracing::info!("轮次" = iteration, "发现数" = %state.findings.len(), "开始新一轮迭代");
+            self.report(ProgressUpdate::Phase {
+                name: "研究".into(),
+                message: format!("第 {} 轮迭代", iteration),
+            });
 
             let tasks = self.build_iteration_tasks(&plan, &state);
             if tasks.is_empty() {
-                tracing::info!("no pending tasks, ending iteration");
+                tracing::info!("没有待处理任务，结束迭代");
             }
 
             let new_findings = self
                 .execute_tasks_concurrently(&tasks, iteration, &semaphore)
                 .await;
+            let prev_count = state.findings.len();
             state.findings.extend(new_findings);
+            let new_count = state.findings.len();
+
+            if new_count == prev_count {
+                empty_rounds += 1;
+            } else {
+                empty_rounds = 0;
+            }
+            if empty_rounds >= 3 {
+                tracing::warn!("连续 3 轮未产生新发现，提前终止研究");
+                break;
+            }
 
             if state.findings.is_empty() {
-                tracing::warn!("no findings after iteration, stopping");
+                tracing::warn!("迭代后无发现，停止");
                 break;
             }
 
@@ -112,12 +150,20 @@ impl ResearchOrchestrator {
             };
             let quality = self.quality_evaluator.evaluate(&knowledge, &query.full_query());
             tracing::info!(
-                overall = %quality.overall,
-                coverage = %quality.coverage,
-                reliability = %quality.reliability,
-                depth = %quality.depth,
-                "quality score"
+                "总分" = %quality.overall,
+                "覆盖" = %quality.coverage,
+                "可靠" = %quality.reliability,
+                "深度" = %quality.depth,
+                "质量评分"
             );
+
+            self.report(ProgressUpdate::Iteration {
+                iteration,
+                max_iterations: self.config.max_iterations,
+                quality: Some(quality.clone()),
+                findings_count: state.findings.len(),
+                sources_count: state.citation_graph.sources.len(),
+            });
 
             if quality.overall < self.config.quality_threshold {
                 state.pending_directions = self
@@ -126,7 +172,7 @@ impl ResearchOrchestrator {
                     .await
                     .unwrap_or_default();
                 if !state.pending_directions.is_empty() {
-                    tracing::info!(new_directions = %state.pending_directions.len(), "new research directions");
+                    tracing::info!("新方向" = %state.pending_directions.len(), "发现新的研究方向");
                 }
             }
 
@@ -145,7 +191,7 @@ impl ResearchOrchestrator {
             );
 
             if quality.overall >= self.config.quality_threshold {
-                tracing::info!("quality threshold reached, stopping iteration");
+                tracing::info!("质量阈值已达，停止迭代");
                 break;
             }
         }
@@ -160,12 +206,17 @@ impl ResearchOrchestrator {
             &query.full_query(),
         );
         tracing::info!(
-            overall = %quality.overall,
-            coverage = %quality.coverage,
-            reliability = %quality.reliability,
-            depth = %quality.depth,
-            "final quality score"
+            "总分" = %quality.overall,
+            "覆盖" = %quality.coverage,
+            "可靠" = %quality.reliability,
+            "深度" = %quality.depth,
+            "最终质量评分"
         );
+
+        self.report(ProgressUpdate::Phase {
+            name: "报告".into(),
+            message: "正在生成研究报告".into(),
+        });
 
         let report = if self.config.long_report && plan.outline.is_some() {
             self.build_long_report(&query, &state, &quality, &plan).await?
@@ -185,6 +236,8 @@ impl ResearchOrchestrator {
         };
 
         self.save_to_memory("report", &serde_json::to_string(&report).unwrap_or_default());
+
+        self.report(ProgressUpdate::Report(report.clone()));
 
         if let Some(ref memory) = self.memory {
             for finding in &state.findings {
@@ -251,7 +304,7 @@ impl ResearchOrchestrator {
             for result in results {
                 match result {
                     Ok(findings) => all_findings.extend(findings),
-                    Err(e) => tracing::warn!("task failed: {e}"),
+                    Err(e) => tracing::warn!("任务失败: {e}"),
                 }
             }
             drop(_permit);
@@ -408,7 +461,7 @@ impl ResearchOrchestrator {
                 .update_report(existing, &state.findings, &state.citation_graph, quality)
                 .await
                 .unwrap_or_else(|e| {
-                    tracing::warn!("progressive report update failed: {e}");
+                    tracing::warn!("渐进式报告更新失败: {e}");
                     ResearchReport {
                         query_id: query.id,
                         title: format!("{} - 研究报告", query.query),
@@ -444,7 +497,7 @@ impl ResearchOrchestrator {
             .collect();
 
         if chapter_titles.is_empty() {
-            tracing::warn!("no chapters in outline, falling back to simple report");
+            tracing::warn!("大纲无章节，降级为简单报告");
             return self
                 .writer
                 .write_report(&query.query, &state.findings, &state.citation_graph, quality)
@@ -466,7 +519,7 @@ impl ResearchOrchestrator {
             .write_long_report(&query.query, outline, &chapters, &cross_check, quality)
             .await
             .map_err(|e| {
-                tracing::warn!("long report generation failed: {e}");
+                tracing::warn!("长报告生成失败: {e}");
                 e
             })
             .unwrap_or_else(|_| ResearchReport {

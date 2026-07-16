@@ -186,11 +186,47 @@ pub struct ReportSection {
     pub citations: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub enum ProgressUpdate {
+    Started {
+        max_iterations: usize,
+        total_tasks: usize,
+    },
+    Phase {
+        name: String,
+        message: String,
+    },
+    Iteration {
+        iteration: usize,
+        max_iterations: usize,
+        quality: Option<QualityScore>,
+        findings_count: usize,
+        sources_count: usize,
+    },
+    Report(ResearchReport),
+    Error(String),
+}
+
+pub trait ProgressReporter: Send + Sync {
+    fn report(&self, update: ProgressUpdate);
+}
+
+pub struct NullProgressReporter;
+impl ProgressReporter for NullProgressReporter {
+    fn report(&self, _update: ProgressUpdate) {}
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchConfig {
     pub search: SearchConfig,
     pub llm: LlmConfig,
     pub research: ResearchSettings,
+    pub pdf: PdfConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PdfConfig {
+    pub font: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,15 +236,10 @@ pub struct SearchConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
-    #[serde(default)]
     pub api_key: String,
-    #[serde(default)]
     pub base_url: String,
-    #[serde(default = "default_main_model")]
     pub main_model: String,
 }
-
-fn default_main_model() -> String { "gpt-4o".into() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchSettings {

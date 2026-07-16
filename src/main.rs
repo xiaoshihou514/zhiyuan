@@ -1,31 +1,71 @@
-use clap::Parser;
-use std::io::{BufRead, Write};
+use std::io::Write as IoWrite;
 use std::path::Path;
-use std::sync::Arc;
-use zhiyuan_core::{LlmClient, ResearchConfig, ResearchQuery};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use clap::Parser;
+use tuirealm::application::{Application, PollStrategy};
+use tuirealm::event::NoUserEvent;
+use tuirealm::listener::EventListenerCfg;
+use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalAdapter};
+use zhiyuan_core::{
+    LlmClient, ProgressReporter, ProgressUpdate, ResearchConfig, ResearchPlan, ResearchQuery,
+};
 use zhiyuan_orchestrator::ResearchOrchestrator;
-use zhiyuan_search::EnginePool;
+use zhiyuan_search::{BingEngine, EnginePool};
 
 mod llm;
 use llm::OpenaiLlm;
 
 mod pdf;
+mod tui;
+use tui::{App, Id, Msg, TuiEvent};
+
+struct DualWriter {
+    file: Arc<Mutex<std::fs::File>>,
+    tx: tokio::sync::mpsc::UnboundedSender<TuiEvent>,
+}
+
+impl Clone for DualWriter {
+    fn clone(&self) -> Self {
+        Self {
+            file: self.file.clone(),
+            tx: self.tx.clone(),
+        }
+    }
+}
+
+impl IoWrite for DualWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.file.lock().unwrap().write_all(buf).ok();
+        if let Ok(s) = String::from_utf8(buf.to_vec()) {
+            let _ = self.tx.send(TuiEvent::LogLine(s));
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.lock().unwrap().flush()
+    }
+}
+
+struct ChannelReporter {
+    tx: tokio::sync::mpsc::UnboundedSender<TuiEvent>,
+}
+
+impl ProgressReporter for ChannelReporter {
+    fn report(&self, update: ProgressUpdate) {
+        let _ = self.tx.send(TuiEvent::Progress(update));
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "zhiyuan", version, about = "致远 - 深度研究框架")]
 struct Cli {
-    /// 研究问题
     query: String,
-
-    /// 研究前 LLM 生成澄清问题并等待用户回答
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     clarify: bool,
-
-    /// 启用长报告模式（多章节结构报告）
     #[arg(long)]
     long: bool,
-
-    /// 任务并发数
     #[arg(long, default_value_t = 4)]
     concurrency: usize,
 }
@@ -39,27 +79,45 @@ async fn main() -> anyhow::Result<()> {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         cli.query.hash(&mut hasher);
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros())
+            .unwrap_or(0)
+            .hash(&mut hasher);
         hasher.finish()
     };
 
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     let log_dir = Path::new(&home).join(".local/share/zhiyuan");
-    std::fs::create_dir_all(&log_dir).ok();
+    std::fs::create_dir_all(&log_dir)?;
     let log_path = log_dir.join(format!("{:016x}.log", hash));
     let log_file = std::fs::File::create(&log_path)
         .map_err(|e| anyhow::anyhow!("创建日志文件失败 {}: {e}", log_path.display()))?;
 
-    tracing_subscriber::fmt()
-        .with_writer(std::sync::Mutex::new(log_file))
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<TuiEvent>();
+    let (research_trigger_tx, research_trigger_rx) =
+        tokio::sync::oneshot::channel::<(ResearchQuery, Option<ResearchPlan>)>();
 
-    tracing::info!(query = %cli.query, hash = %format!("{:016x}", hash), "session started");
+    {
+        let dual = std::sync::Mutex::new(DualWriter {
+            file: Arc::new(Mutex::new(log_file)),
+            tx: event_tx.clone(),
+        });
+        tracing_subscriber::fmt()
+            .with_writer(dual)
+            .with_ansi(false)
+            .with_target(false)
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "info".into()),
+            )
+            .init();
+    }
+
+    tracing::info!("查询" = %cli.query, "哈希" = %format!("{:016x}", hash), "会话开始");
 
     let data_dir = format!("{home}/.cache/zhiyuan/{:016x}", hash);
+    let llm_log = log_dir.join(format!("{:016x}_llm.log", hash));
 
     let mut config = load_config()?;
     config.research.long_report = cli.long;
@@ -68,7 +126,13 @@ async fn main() -> anyhow::Result<()> {
         config.research.cross_validate = true;
     }
 
-    let engine_pool = Arc::new(EnginePool::from_config(&config.search));
+    let engine_pool = if cli.long {
+        Arc::new(EnginePool::from_config(&config.search))
+    } else {
+        Arc::new(EnginePool::new(vec![
+            Box::new(BingEngine::new(config.search.max_results)),
+        ]))
+    };
 
     if config.llm.api_key.is_empty() {
         tracing::warn!("LLM API 密钥为空，将不发送 Authorization 请求头");
@@ -77,102 +141,143 @@ async fn main() -> anyhow::Result<()> {
         config.llm.api_key.clone(),
         config.llm.base_url.clone(),
         config.llm.main_model.clone(),
+        Some(llm_log.to_string_lossy().to_string()),
     ));
 
-    let clarification = if cli.clarify {
-        let planner = zhiyuan_agents::PlannerAgent::new(llm.clone_box());
-        match planner.generate_clarifying_questions(&cli.query).await {
-            Ok(questions) if !questions.is_empty() => {
-                println!("\n=== 研究问题澄清 ===\n");
-                println!("您的研究问题：{}\n", cli.query);
-                println!("请回答以下问题以精炼研究方向（直接回车跳过）：\n");
+    if cli.clarify {
+        let tx = event_tx.clone();
+        let llm_clone = llm.clone_box();
 
-                let stdin = std::io::stdin();
-                let mut answers = Vec::new();
-                for (i, question) in questions.iter().enumerate() {
-                    print!("{}. {}: ", i + 1, question);
-                    std::io::stdout().flush().ok();
-                    let mut input = String::new();
-                    stdin.lock().read_line(&mut input).ok();
-                    let answer = input.trim().to_string();
-                    if !answer.is_empty() {
-                        answers.push(format!("{question} {answer}"));
-                    }
+        let inner_query = ResearchQuery::new(cli.query.clone());
+        let rs = config.research.clone();
+        tokio::spawn(async move {
+            let planner = zhiyuan_agents::PlannerAgent::new(llm_clone);
+            match planner.create_plan(&inner_query, &rs).await {
+                Ok(plan) => {
+                    tx.send(TuiEvent::PlanReady(plan)).ok();
                 }
-
-                if answers.is_empty() {
-                    None
-                } else {
-                    Some(answers.join("\n"))
+                Err(_) => {
+                    tx.send(TuiEvent::PlanReady(ResearchPlan {
+                        query_id: inner_query.id,
+                        sub_tasks: vec![],
+                        outline: None,
+                    }))
+                    .ok();
                 }
             }
-            _ => None,
-        }
-    } else {
-        None
-    };
-
-    let orchestrator = ResearchOrchestrator::new(
-        llm,
-        engine_pool,
-        config.research,
-        Some(data_dir),
-    ).await;
-
-    let query = ResearchQuery {
-        id: zhiyuan_core::Uuid::new_v4(),
-        query: cli.query.clone(),
-        clarification,
-    };
-
-    tracing::info!("Starting research: {}", query.full_query());
-    let report = orchestrator.research(query).await?;
-
-    if cli.long {
-        println!("# {}\n", report.title);
-        for section in &report.sections {
-            if !section.content.is_empty() {
-                println!("{}", section.content);
-            }
-        }
-        println!("\n---\n");
-        println!(
-            "质量评分: {:.2} (覆盖率: {:.2}, 可靠性: {:.2}, 时效性: {:.2}, 深度: {:.2})",
-            report.quality_score.overall,
-            report.quality_score.coverage,
-            report.quality_score.reliability,
-            report.quality_score.freshness,
-            report.quality_score.depth,
-        );
-    } else {
-        for section in &report.sections {
-            println!("# {}\n", section.heading);
-            println!("{}\n", section.content);
-        }
-        println!("---\n");
-        println!(
-            "质量评分: {:.2} (覆盖率: {:.2}, 可靠性: {:.2}, 时效性: {:.2}, 深度: {:.2})",
-            report.quality_score.overall,
-            report.quality_score.coverage,
-            report.quality_score.reliability,
-            report.quality_score.freshness,
-            report.quality_score.depth,
-        );
+        });
     }
 
-    let pdf_filename = report
-        .title
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { ' ' })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join("_")
-        .trim_end_matches('_')
-        .to_string()
-        + ".pdf";
-    if let Err(e) = pdf::compile_report(&report, std::path::Path::new(&pdf_filename)) {
-        tracing::warn!("PDF 生成失败: {e}");
+    {
+        let tx = event_tx.clone();
+        let llm = llm.clone_box();
+        let engine_pool = engine_pool.clone();
+        let config_research = config.research.clone();
+        let data_dir = data_dir.clone();
+
+        tokio::spawn(async move {
+            let (query, plan) = match research_trigger_rx.await {
+                Ok(pair) => pair,
+                Err(_) => return,
+            };
+            let reporter = ChannelReporter { tx: tx.clone() };
+            let orchestrator = ResearchOrchestrator::new(
+                llm,
+                engine_pool,
+                config_research,
+                Some(data_dir),
+                Some(Box::new(reporter)),
+            )
+            .await;
+            match orchestrator.research(query, plan).await {
+                Ok(report) => {
+                    tx.send(TuiEvent::Progress(ProgressUpdate::Report(report)))
+                        .ok();
+                }
+                Err(e) => {
+                    tx.send(TuiEvent::Progress(ProgressUpdate::Error(e.to_string())))
+                        .ok();
+                }
+            }
+        });
+    }
+
+    let research_trigger = if cli.clarify {
+        research_trigger_tx
+    } else {
+        let query = ResearchQuery::new(cli.query.clone());
+        let _ = research_trigger_tx.send((query, None));
+        let (dummy, _) = tokio::sync::oneshot::channel();
+        dummy
+    };
+
+    let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
+        EventListenerCfg::default()
+            .crossterm_input_listener(Duration::from_millis(50), 1)
+            .tick_interval(Duration::from_millis(100)),
+    );
+
+    app.mount(
+        Id::App,
+        Box::new(App::new(cli.query.clone(), event_rx, research_trigger)),
+        vec![],
+    )?;
+    app.active(&Id::App)?;
+
+    let mut adapter = CrosstermTerminalAdapter::new()?;
+    adapter.enable_raw_mode()?;
+    adapter.enter_alternate_screen()?;
+    adapter.enable_mouse_capture()?;
+
+    let mut quit = false;
+
+    while !quit {
+        match app.tick(PollStrategy::Once(Duration::from_millis(100))) {
+            Ok(msgs) => {
+                for msg in msgs {
+                    if msg == Msg::Quit {
+                        quit = true;
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        let _ = adapter.draw(|f| {
+            app.view(&Id::App, f, f.area());
+        });
+    }
+
+    drop(adapter);
+
+    if let Some(component) = app.get_component_mut(&Id::App) {
+        let any = component.as_any_mut();
+        if let Some(comp) = any.downcast_mut::<App>() {
+            if let Some(report) = comp.report() {
+            let font_paths = vec![config.pdf.font.clone()];
+                let pdf_filename = report
+                    .title
+                    .chars()
+                    .map(|c| {
+                        if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                            c
+                        } else {
+                            ' '
+                        }
+                    })
+                    .collect::<String>()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join("_")
+                    .trim_end_matches('_')
+                    .to_string()
+                    + ".pdf";
+                if let Err(e) = pdf::compile_report(report, std::path::Path::new(&pdf_filename), &font_paths) {
+                    tracing::warn!("PDF 生成失败: {e}");
+                } else {
+                    println!("PDF: {}", pdf_filename);
+                }
+            }
+        }
     }
 
     Ok(())

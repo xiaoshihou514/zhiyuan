@@ -1,0 +1,12 @@
+[package]
+name = "zhiyuan-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+zhiyuan-search = { path = "../zhiyuan-search" }
+zhiyuan-extract = { path = "../zhiyuan-extract" }
+zhiyuan-core = { path = "../zhiyuan-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

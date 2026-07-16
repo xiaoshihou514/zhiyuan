@@ -40,11 +40,11 @@ impl SynthesizerAgent {
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .unwrap_or_else(|e| {
-                tracing::warn!(err = %e, "synthesizer JSON parse failed, using empty fallback");
+                tracing::warn!("错误" = %e, "综合器 JSON 解析失败，使用空回退");
                 serde_json::json!({"findings": []})
             });
 
-        let findings: Vec<Finding> = parsed["findings"]
+        let mut findings: Vec<Finding> = parsed["findings"]
             .as_array()
             .map(|arr| {
                 arr.iter()
@@ -62,7 +62,22 @@ impl SynthesizerAgent {
             })
             .unwrap_or_default();
 
-        tracing::info!(findings = %findings.len(), "synthesized findings");
+        if findings.is_empty() && !contents.is_empty() {
+            for c in contents.iter().take(3) {
+                let snippet: String = c.text.chars().take(500).collect();
+                if !snippet.trim().is_empty() {
+                    findings.push(Finding {
+                        id: Uuid::new_v4(),
+                        content: snippet,
+                        sources: vec![c.url.clone()],
+                        sub_task_id: Some(sub_task_id),
+                        iteration,
+                    });
+                }
+            }
+        }
+
+        tracing::info!("发现" = %findings.len(), "综合发现完成");
 
         Ok(findings)
     }
@@ -98,7 +113,7 @@ impl SynthesizerAgent {
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .unwrap_or_else(|e| {
-                tracing::warn!(err = %e, "directions JSON parse failed, using empty fallback");
+                tracing::warn!("错误" = %e, "方向解析 JSON 失败，使用空回退");
                 serde_json::json!({"directions": []})
             });
 

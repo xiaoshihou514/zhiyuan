@@ -36,7 +36,7 @@ impl SearcherAgent {
         let semaphore = Arc::new(Semaphore::new(concurrency));
         let mut handles = Vec::new();
 
-        tracing::info!(query_count = %queries.len(), mode = if cross_validate { "cross-validate" } else { "fallback" }, "executing search");
+        tracing::info!("查询数" = %queries.len(), "模式" = if cross_validate { "cross-validate" } else { "fallback" }, "正在执行搜索");
 
         for query_str in queries {
             let permit = semaphore.clone().acquire_owned().await.unwrap();
@@ -65,14 +65,14 @@ impl SearcherAgent {
         for handle in handles {
             match handle.await {
                 Ok((_q, Ok(results))) => {
-                    tracing::debug!(query = %_q, count = %results.len(), "search returned results");
+                    tracing::debug!(query = %_q, count = %results.len(), "搜索返回结果");
                     all_results.extend(results);
                 }
-                Ok((_q, Err(e))) => tracing::warn!("Search failed for query '{_q}': {e}"),
-                Err(e) => tracing::warn!("Search task panicked: {e}"),
+                Ok((_q, Err(e))) => tracing::warn!("搜索查询 '{_q}' 失败: {e}"),
+                Err(e) => tracing::warn!("搜索任务异常: {e}"),
             }
         }
-        tracing::info!(total = %all_results.len(), "search completed");
+        tracing::info!("总数" = %all_results.len(), "搜索完成");
         Ok(all_results)
     }
 }

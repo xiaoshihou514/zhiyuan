@@ -7,6 +7,7 @@ members = [
     "crates/zhiyuan-orchestrator",
     "crates/zhiyuan-agents",
     "crates/zhiyuan-robust",
+    "crates/zhiyuan-tests",
 ]
 resolver = "2"
 
@@ -25,6 +26,8 @@ zhiyuan-agents = { path = "crates/zhiyuan-agents" }
 zhiyuan-robust = { path = "crates/zhiyuan-robust" }
 
 tokio = { version = "1", features = ["full"] }
+tuirealm = "4"
+ratatui = "0.28"
 reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }

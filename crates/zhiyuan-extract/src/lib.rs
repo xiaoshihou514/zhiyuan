@@ -39,12 +39,8 @@ impl WebExtractor {
     }
 
     fn clean_text(&self, text: &str) -> String {
-        let cleaned: String = text
-            .chars()
-            .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace() || c.is_ascii_punctuation() || c.is_whitespace())
-            .collect();
         let re_whitespace = regex_lite::Regex::new(r"\s+").unwrap();
-        let collapsed = re_whitespace.replace_all(&cleaned, " ");
+        let collapsed = re_whitespace.replace_all(text, " ");
         let truncated: String = collapsed.chars().take(self.max_text_length).collect();
         truncated.trim().to_string()
     }
@@ -106,5 +102,69 @@ impl ContentExtractor for WebExtractor {
 impl Default for WebExtractor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_text_preserves_cjk() {
+        let e = WebExtractor::new();
+        let result = e.clean_text("你好世界");
+        assert!(result.contains("你好世界"));
+    }
+
+    #[test]
+    fn test_clean_text_collapses_whitespace() {
+        let e = WebExtractor::new();
+        let result = e.clean_text("a   b\t\tc\n\nd");
+        assert_eq!(result, "a b c d");
+    }
+
+    #[test]
+    fn test_clean_text_truncates() {
+        let mut e = WebExtractor::new();
+        e.max_text_length = 5;
+        let result = e.clean_text("abcdefghij");
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_clean_text_trimmed() {
+        let e = WebExtractor::new();
+        let result = e.clean_text("  hello world  ");
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_clean_text_cjk_not_filtered() {
+        let e = WebExtractor::new();
+        let result = e.clean_text("国产AUTOSAR工具链现状与未来发展趋势分析报告");
+        assert!(result.contains("国产AUTOSAR"));
+    }
+
+    #[test]
+    fn test_relevance_score_matches() {
+        let e = WebExtractor::new();
+        let score = e.relevance_score("国产AUTOSAR工具链发展现状分析", "AUTOSAR工具链");
+        assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_relevance_score_no_match() {
+        let e = WebExtractor::new();
+        let score = e.relevance_score("今天天气不错", "AUTOSAR");
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_extract_main_content_gets_body_text() {
+        let e = WebExtractor::new();
+        let html = "<html><body>Hello 世界</body></html>";
+        let result = e.extract_main_content(html);
+        assert!(result.contains("Hello"));
+        assert!(result.contains("世界"));
     }
 }

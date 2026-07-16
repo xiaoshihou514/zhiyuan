@@ -46,7 +46,7 @@ impl VerifierAgent {
         let cleaned = extract_json(&response);
         let parsed: serde_json::Value = serde_json::from_str(cleaned)
             .unwrap_or_else(|e| {
-                tracing::warn!(err = %e, "verifier JSON parse failed, using empty fallback");
+                tracing::warn!("错误" = %e, "验证器 JSON 解析失败，使用空回退");
                 serde_json::json!({"edges": []})
             });
 
@@ -68,7 +68,7 @@ impl VerifierAgent {
             })
             .unwrap_or_default();
 
-        tracing::info!(claims = %claims.len(), sources = %sources.len(), edges = %edges.len(), "verification completed");
+        tracing::info!("声明" = %claims.len(), "来源" = %sources.len(), "边" = %edges.len(), "验证完成");
 
         Ok(CitationGraph {
             claims: claims.to_vec(),

@@ -86,60 +86,37 @@ fn is_leap(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
-fn load_fonts() -> (LazyHash<FontBook>, Vec<Font>) {
+fn load_fonts(font_paths: &[String]) -> (LazyHash<FontBook>, Vec<Font>) {
     let mut book = FontBook::new();
     let mut fonts = Vec::new();
 
-    for path in find_font_files() {
-        if let Ok(data) = std::fs::read(&path) {
-            let bytes = Bytes::new(data);
-            if let Some(font) = Font::new(bytes, 0) {
-                book.push(font.info().clone());
-                fonts.push(font);
+    for path in font_paths {
+        let Ok(data) = std::fs::read(path) else {
+            tracing::warn!("字体文件无法读取: {path}");
+            continue;
+        };
+        let bytes = Bytes::new(data);
+        // TTC 文件可能包含多个变体，尝试加载所有索引
+        for i in 0..8 {
+            match Font::new(bytes.clone(), i) {
+                Some(font) => {
+                    book.push(font.info().clone());
+                    fonts.push(font);
+                }
+                None if i == 0 => {
+                    tracing::warn!("字体加载失败: {path}");
+                    break;
+                }
+                None => break,
             }
         }
+    }
+
+    if fonts.is_empty() {
+        tracing::warn!("未加载任何字体，PDF 输出可能不正常");
     }
 
     (LazyHash::new(book), fonts)
-}
-
-fn find_font_files() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    if let Ok(home) = std::env::var("HOME") {
-        let dirs = [
-            format!("{home}/.fonts"),
-            format!("{home}/.local/share/fonts"),
-            "/usr/share/fonts".into(),
-            "/usr/local/share/fonts".into(),
-        ];
-        for dir in dirs {
-            if let Ok(entries) = walk_dir(Path::new(&dir)) {
-                for p in entries {
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if matches!(ext, "ttf" | "otf" | "ttc" | "otc") {
-                        paths.push(p);
-                    }
-                }
-            }
-        }
-    }
-    paths
-}
-
-fn walk_dir(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut result = Vec::new();
-    if dir.is_dir() {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                result.extend(walk_dir(&path)?);
-            } else {
-                result.push(path);
-            }
-        }
-    }
-    Ok(result)
 }
 
 fn markdown_to_typst(md: &str) -> String {
@@ -256,8 +233,12 @@ fn generate_typst_source(report: &ResearchReport) -> String {
     typ
 }
 
-pub fn compile_report(report: &ResearchReport, output_path: &Path) -> anyhow::Result<()> {
-    let (book, fonts) = load_fonts();
+pub fn compile_report(
+    report: &ResearchReport,
+    output_path: &Path,
+    font_paths: &[String],
+) -> anyhow::Result<()> {
+    let (book, fonts) = load_fonts(font_paths);
 
     let main_id = FileId::new(None, VirtualPath::new(Path::new("/main.typ")));
     let typst_source = generate_typst_source(report);
