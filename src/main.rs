@@ -313,9 +313,23 @@ async fn main() -> anyhow::Result<()> {
                                         break;
                                     }
                                     Err(errs) => {
+                                        let source_lines: Vec<&str> = source.lines().collect();
                                         for e in &errs {
+                                            let s = format!("⚠ 错误（行 {}）: {}", e.line, e.message);
+                                            let _ = tx.send(TuiEvent::PdfMessage(s));
+                                            let ctx = 3;
+                                            let lo = e.line.saturating_sub(ctx).max(1);
+                                            let hi = (e.line + ctx).min(source_lines.len());
+                                            let mut ctx_lines = Vec::new();
+                                            for l in lo..=hi {
+                                                let marker = if l == e.line { "→" } else { " " };
+                                                ctx_lines.push(format!(
+                                                    "  {} {:>4} │ {}",
+                                                    marker, l, source_lines[l - 1]
+                                                ));
+                                            }
                                             let _ = tx.send(TuiEvent::PdfMessage(
-                                                format!("⚠ 错误（行 {}）: {}", e.line, e.message)
+                                                ctx_lines.join("\n"),
                                             ));
                                         }
                                         let _ = tx.send(TuiEvent::PdfMessage(
