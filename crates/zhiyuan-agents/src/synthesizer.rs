@@ -18,6 +18,9 @@ impl SynthesizerAgent {
         iteration: usize,
         existing_findings: &[Finding],
     ) -> Result<Vec<Finding>> {
+        if !contents.is_empty() {
+            tracing::info!("开始综合发现（{} 个来源）", contents.len());
+        }
         let content_items: String = contents
             .iter()
             .enumerate()

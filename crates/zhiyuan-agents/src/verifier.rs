@@ -12,6 +12,9 @@ impl VerifierAgent {
     }
 
     pub async fn verify_claims(&self, claims: &[Claim], sources: &[SourceNode]) -> Result<CitationGraph> {
+        if !claims.is_empty() && !sources.is_empty() {
+            tracing::info!("开始验证（{} 个声明，{} 个来源）", claims.len(), sources.len());
+        }
         let claims_str: String = claims
             .iter()
             .map(|c| format!("- 声明 ({})：{}", c.id, c.text))

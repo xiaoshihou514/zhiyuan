@@ -125,6 +125,10 @@ impl ExtractorAgent {
 
         tracing::info!("总数" = %targets.len(), "提取器选定URL");
 
+        if !targets.is_empty() {
+            tracing::info!("开始内容提取");
+        }
+
         let mut extracted = Vec::new();
         for chunk in targets.chunks(32) {
             let futures: Vec<_> = chunk

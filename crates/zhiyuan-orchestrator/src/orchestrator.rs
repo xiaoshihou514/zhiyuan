@@ -168,6 +168,7 @@ impl ResearchOrchestrator {
                 query_id: query.id,
                 findings: state.findings.clone(),
             };
+            tracing::info!("开始质量评估");
             let quality = self
                 .quality_evaluator
                 .evaluate(&knowledge, &query.full_query(), &plan, &state.citation_graph);
@@ -235,6 +236,7 @@ impl ResearchOrchestrator {
 
         self.verify_findings(&mut state).await;
 
+        tracing::info!("开始最终质量评估");
         let quality = self.quality_evaluator.evaluate(
             &KnowledgeBase {
                 query_id: query.id,
