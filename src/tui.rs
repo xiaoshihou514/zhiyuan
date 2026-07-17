@@ -434,12 +434,13 @@ impl Component for App {
                 );
 
                 let input_display = if input.value().is_empty() {
-                    "（直接回车执行，或输入评论后回车）".to_string()
+                    "  输入评论或修改建议，然后 Enter 执行".to_string()
                 } else {
-                    format!("> {}", input.value())
+                    format!("  > {}", input.value())
                 };
                 frame.render_widget(
-                    Paragraph::new(input_display),
+                    Paragraph::new(input_display)
+                        .style(Style::new().bg(Color::Rgb(30, 40, 60)).fg(GOLD)),
                     chunks[3],
                 );
 
