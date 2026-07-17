@@ -69,8 +69,6 @@ enum Phase {
         input: InputBuf,
     },
     Researching {
-        phase_name: String,
-        status_message: String,
         iteration: usize,
         max_iterations: usize,
         quality: Option<QualityScore>,
@@ -166,8 +164,6 @@ impl App {
 
     fn start_researching(&mut self, tasks: Vec<String>) {
         self.phase = Phase::Researching {
-            phase_name: String::new(),
-            status_message: String::new(),
             iteration: 0,
             max_iterations: 4,
             quality: None,
@@ -220,17 +216,13 @@ impl App {
                     }
                 }
             }
-            ProgressUpdate::Phase { name, message } => {
+            ProgressUpdate::Phase { name: _, message: _ } => {
                 if let Phase::Researching {
-                    ref mut phase_name,
-                    ref mut status_message,
                     ref mut current_task,
                     ref tasks,
                     ..
                 } = self.phase
                 {
-                    *phase_name = name;
-                    *status_message = message;
                     if *current_task < tasks.len() {
                         *current_task += 1;
                     }
@@ -436,8 +428,6 @@ impl Component for App {
                 );
             }
             Phase::Researching {
-                phase_name,
-                status_message,
                 iteration,
                 max_iterations,
                 quality,
@@ -454,15 +444,6 @@ impl Component for App {
                 tokens_out,
             } => {
                 let spinner = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"][*spinner_frame % 8];
-                let status = if !phase_name.is_empty() {
-                    Line::from(vec![
-                        Span::styled(format!("{}  {}", spinner, phase_name), GOLD),
-                        Span::raw("  "),
-                        Span::styled(status_message.as_str(), GRAY),
-                    ])
-                } else {
-                    Line::from(Span::styled(format!("{}  研究进行中...", spinner), GOLD))
-                };
 
                 let pct = if *max_iterations > 0 {
                     *iteration as f64 / *max_iterations as f64
@@ -474,7 +455,6 @@ impl Component for App {
                     .direction(Direction::Vertical)
                     .constraints([
                         Constraint::Length(1),
-                        Constraint::Length(1),
                         Constraint::Length(3),
                         Constraint::Min(5),
                         Constraint::Length(1),
@@ -483,23 +463,22 @@ impl Component for App {
                     .split(inner);
 
                 frame.render_widget(
-                    Paragraph::new(format!("{}", self.query_text)).fg(GRAY),
+                    Paragraph::new(format!("{}  {}", spinner, self.query_text)).fg(GOLD),
                     chunks[0],
                 );
-                frame.render_widget(Paragraph::new(status), chunks[1]);
 
                 let gauge = Gauge::default()
                     .ratio(pct as f64)
                     .label(format!("{} / {}", iteration, max_iterations))
                     .use_unicode(true)
                     .gauge_style(Style::new().fg(TEAL));
-                frame.render_widget(gauge, chunks[2]);
+                frame.render_widget(gauge, chunks[1]);
 
                 // 两栏分割：任务树 + 日志
                 let panes = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-                    .split(chunks[3]);
+                    .split(chunks[2]);
 
                 // 左：任务树
                 let task_lines: Vec<Line> = tasks
@@ -520,22 +499,11 @@ impl Component for App {
                     })
                     .collect();
                 frame.render_widget(
-                    Paragraph::new(task_lines)
-                        .block(
-                            Block::default()
-                                .borders(Borders::ALL)
-                                .title(Line::from(Span::styled("── 任务 ──", GRAY))),
-                        )
-                        .wrap(Wrap { trim: false }),
+                    Paragraph::new(task_lines).wrap(Wrap { trim: false }),
                     panes[0],
                 );
 
                 // 右：日志
-                let log_block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(Line::from(Span::styled("── 日志 ──", GRAY)));
-                let log_area = log_block.inner(panes[1]);
-                frame.render_widget(log_block, panes[1]);
                 let visible = 16usize;
                 let max_start = log_lines.len().saturating_sub(visible);
                 let start = max_start.saturating_sub(*log_scroll).min(max_start);
@@ -552,7 +520,7 @@ impl Component for App {
                         Line::from(Span::styled(d, color))
                     })
                     .collect();
-                frame.render_widget(Paragraph::new(log_text), log_area);
+                frame.render_widget(Paragraph::new(log_text), panes[1]);
 
                 if let Some(q) = quality {
                     fn bar(v: f64, width: usize, color: Color) -> Line<'static> {
@@ -599,7 +567,7 @@ impl Component for App {
                                 .borders(Borders::ALL)
                                 .title(Line::from(Span::styled("── 质量 ──", GRAY))),
                             ),
-                        chunks[4],
+                        chunks[3],
                     );
                 }
 
@@ -633,7 +601,7 @@ impl Component for App {
                     Span::raw("  │  "),
                     Span::styled(format!("词元 {}", fmt_tokens(*tokens_in + *tokens_out)), GRAY),
                 ]);
-                frame.render_widget(Paragraph::new(stat_line), chunks[5]);
+                frame.render_widget(Paragraph::new(stat_line), chunks[4]);
             }
             Phase::Complete { report } => {
                 let q = &report.quality_score;

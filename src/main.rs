@@ -111,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
             .with_target(false)
             .with_env_filter(
                 tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "info".into()),
+                    .unwrap_or_else(|_| "info,pdf_oxide=off".into()),
             )
             .init();
     }
