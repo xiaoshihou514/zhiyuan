@@ -96,9 +96,6 @@ enum Phase {
         tokens_in: usize,
         tokens_out: usize,
     },
-    Complete {
-        report: ResearchReport,
-    },
     PdfGenerating {
         report: ResearchReport,
         messages: Vec<String>,
@@ -136,7 +133,6 @@ impl App {
 
     pub fn report(&self) -> Option<&ResearchReport> {
         match &self.phase {
-            Phase::Complete { report } => Some(report),
             Phase::PdfGenerating { report, .. } => Some(report),
             _ => None,
         }
@@ -268,7 +264,12 @@ impl App {
                 }
             }
             ProgressUpdate::Report(report) => {
-                self.phase = Phase::Complete { report };
+                self.needs_pdf = true;
+                self.phase = Phase::PdfGenerating {
+                    messages: vec!["研究完成，正在生成 PDF...".into()],
+                    done: false,
+                    report,
+                };
             }
             ProgressUpdate::TaskPhase { task_desc, phase } => {
                 if let Phase::Researching {
@@ -386,9 +387,6 @@ impl Component for App {
                     Span::styled(format!("── 深度研究 {}  ──  第 {} 轮  ", s, iteration), GOLD),
                     Span::styled("──", GRAY),
                 ])
-            }
-            Phase::Complete { .. } => {
-                Line::from(Span::styled("── 研究完成 ──", Style::new().fg(TEAL).bold()))
             }
             Phase::PdfGenerating { done, .. } => {
                 let status = if *done { "完成" } else { "生成中" };
@@ -697,69 +695,21 @@ impl Component for App {
                 ]);
                 frame.render_widget(Paragraph::new(stat_line), chunks[3]);
             }
-            Phase::Complete { report } => {
+            Phase::PdfGenerating { messages, done, ref report } => {
+                let mut lines: Vec<Line> = Vec::new();
                 let q = &report.quality_score;
-                let mut lines: Vec<Line> = Vec::new();
                 lines.push(Line::from(vec![
-                    Span::styled("报告   ", GRAY),
-                    Span::raw(&report.title),
-                ]));
-                lines.push(Line::from(vec![
-                    Span::styled("质量   ", GRAY),
+                    Span::styled("质量 ", GRAY),
                     Span::styled(format!("{:.2}  ", q.overall), Style::new().fg(GOLD).bold()),
+                    Span::styled("覆盖", GRAY),
+                    Span::raw(format!(" {:.0}%  ", q.coverage * 100.0)),
+                    Span::styled("可靠", GRAY),
+                    Span::raw(format!(" {:.0}%  ", q.reliability * 100.0)),
+                    Span::styled("深度", GRAY),
+                    Span::raw(format!(" {:.0}%  ", q.depth * 100.0)),
                 ]));
                 lines.push(Line::from(Span::raw("")));
-
-                fn gauge(v: f64, width: usize, color: Color) -> Line<'static> {
-                    let filled = (v * width as f64).round() as usize;
-                    let bar: String = format!(
-                        "{}{}",
-                        "█".repeat(filled),
-                        "░".repeat(width.saturating_sub(filled))
-                    );
-                    Line::from(vec![
-                        Span::styled(bar, Style::new().fg(color)),
-                        Span::raw(" "),
-                        Span::styled(format!("{:>3.0}%", v * 100.0), WARM),
-                    ])
-                }
-                lines.push(Line::from(vec![
-                    Span::styled("覆盖 ", GRAY),
-                ]));
-                lines.push(gauge(q.coverage, 24, TEAL));
-                lines.push(Line::from(vec![
-                    Span::styled("可靠 ", GRAY),
-                ]));
-                lines.push(gauge(q.reliability, 24, TEAL));
-                lines.push(Line::from(vec![
-                    Span::styled("深度 ", GRAY),
-                ]));
-                lines.push(gauge(q.depth, 24, STEEL));
-                lines.push(Line::from(vec![
-                    Span::styled("多样 ", GRAY),
-                ]));
-                lines.push(gauge(q.freshness, 24, STEEL));
-
-                lines.push(Line::from(Span::raw("")));
-                let findings_total: usize = report.sections.iter().map(|s| s.citations.len()).sum();
-                lines.push(Line::from(vec![
-                    Span::styled("章节", GRAY),
-                    Span::raw(format!(" {}  ", report.sections.len())),
-                    Span::styled("引用", GRAY),
-                    Span::raw(format!(" {}", findings_total)),
-                ]));
-                lines.push(Line::from(Span::styled(
-                    "\n研究完成，按 q 开始生成 PDF",
-                    TEAL,
-                )));
-                frame.render_widget(Paragraph::new(lines), inner);
-            }
-            Phase::PdfGenerating { messages, done, .. } => {
-                let mut lines: Vec<Line> = Vec::new();
-                lines.push(Line::from(vec![
-                    Span::styled("PDF 生成", Style::new().fg(TEAL).bold()),
-                ]));
-                for msg in messages.iter().rev().take(8).rev() {
+                for msg in messages.iter().rev().take(10).rev() {
                     let color = if msg.starts_with('✓') {
                         TEAL
                     } else if msg.starts_with('✗') || msg.starts_with('❌') {
@@ -814,21 +764,8 @@ impl AppComponent<Msg, NoUserEvent> for App {
             Event::Keyboard(k) => match k.code {
                 Key::Char('q') | Key::Esc => {
                     match &self.phase {
-                        Phase::Complete { .. } => {
-                            // 切换到 PDF 生成阶段
-                            let phase = std::mem::replace(&mut self.phase, Phase::Loading);
-                            if let Phase::Complete { report } = phase {
-                                self.needs_pdf = true;
-                                self.phase = Phase::PdfGenerating {
-                                    messages: vec!["正在准备 PDF...".into()],
-                                    done: false,
-                                    report,
-                                };
-                            }
-                            None
-                        }
                         Phase::PdfGenerating { done, .. } if *done => Some(Msg::Quit),
-                        Phase::PdfGenerating { .. } => None, // 编译中，忽略 q
+                        Phase::PdfGenerating { .. } => None,
                         _ => Some(Msg::Quit),
                     }
                 }

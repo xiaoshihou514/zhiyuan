@@ -57,8 +57,8 @@ impl WriterAgent {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let system = "你是一个研究报告写作专家。你的任务是基于已有的报告草稿和新的研究发现，
-更新和优化研究报告。保持结构一致性，将新信息融合到适当章节中。
+        let system = "根据已有报告草稿和新的研究发现，更新和优化研究报告。
+保持结构一致性，将新信息融合到适当章节中。
 报告使用 Typst 格式，包含内联引用。
 
 Typst 语法参考：
@@ -116,7 +116,7 @@ Typst 语法参考：
         cross_check_review: &str,
         quality_score: &QualityScore,
     ) -> Result<ResearchReport> {
-        let system = "你是一个研究报告写作专家。根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。
+        let system = "根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。
 报告使用 Typst 格式。
 
 Typst 语法参考：
@@ -211,8 +211,7 @@ Typst 语法参考：
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let system = "你是一个研究报告写作专家。你的任务是根据研究发现和引用信息，
-生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
+        let system = "根据研究发现和引用信息，生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
 
 Typst 语法参考：
 = 一级标题  == 二级标题  === 三级标题

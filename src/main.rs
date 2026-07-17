@@ -284,8 +284,10 @@ async fn main() -> anyhow::Result<()> {
                         tokio::spawn(async move {
                             let tx = tx;
                             let mut report = report;
+                            let mut fix_history: Vec<(String, String)> = Vec::new();
+                            let mut success = false;
 
-                            loop {
+                            for _retry in 0..5 {
                                 let (source, source_map) = pdf::generate_typst_source(&report);
                                 let _ = std::fs::write(&typ_path, &source);
                                 let _ = tx.send(TuiEvent::PdfMessage(
@@ -307,6 +309,7 @@ async fn main() -> anyhow::Result<()> {
                                             }
                                         }
                                         let _ = tx.send(TuiEvent::PdfDone);
+                                        success = true;
                                         break;
                                     }
                                     Err(errs) => {
@@ -318,19 +321,26 @@ async fn main() -> anyhow::Result<()> {
                                         let _ = tx.send(TuiEvent::PdfMessage(
                                             "→ LLM 正在修复段落...".into()
                                         ));
-                                        let fixed = fix_typst_errors(&*llm, &errs, &source_map, &mut report).await;
+                                        let fixed = fix_typst_errors(&*llm, &errs, &source_map, &mut report, &mut fix_history).await;
                                         if !fixed {
                                             let _ = tx.send(TuiEvent::PdfMessage(
-                                                "✗ 无法自动修复，请手动编辑 .typ 文件".into()
+                                                "✗ 无法自动修复（重试次数用尽），请手动编辑 .typ 文件".into()
                                             ));
                                             let _ = tx.send(TuiEvent::PdfDone);
+                                            success = true;
                                             break;
                                         }
                                         let _ = tx.send(TuiEvent::PdfMessage(
-                                            "→ 修复完成，重新编译...".into()
+                                            format!("→ 第 {} 轮修复完成，重新编译...", _retry + 1)
                                         ));
                                     }
                                 }
+                            }
+                            if !success {
+                                let _ = tx.send(TuiEvent::PdfMessage(
+                                    "✗ 超过最大修复次数（5次），放弃".into()
+                                ));
+                                let _ = tx.send(TuiEvent::PdfDone);
                             }
                         });
                     }
@@ -353,6 +363,7 @@ async fn fix_typst_errors(
     errors: &[pdf::SourceError],
     source_map: &pdf::SourceMap,
     report: &mut zhiyuan_core::ResearchReport,
+    history: &mut Vec<(String, String)>,
 ) -> bool {
     let mut fixed_any = false;
     for err in errors {
@@ -375,19 +386,30 @@ async fn fix_typst_errors(
             continue;
         }
 
-        let system = "你是一个 Typst 修复专家。以下段落编译报错，请修复语法问题。
-只输出修复后的段落原文，不要 ``` 围栏或多余文字。";
-        let user = format!(
+        let system = "修复以下 Typst 段落的编译错误。只输出修复后的段落原文。";
+
+        let mut user = format!(
             "错误：{}（行 {}）\n\n段落原文：\n{}",
             err.message, err.line, para
         );
 
+        for (prev_err, prev_fix) in history.iter().rev().take(3).rev() {
+            user.push_str(&format!(
+                "\n\n之前的错误：{}\n对应修复：{}",
+                prev_err, prev_fix
+            ));
+        }
+
         match llm.prompt(system, &user).await {
             Ok(fixed) => {
-                let fixed = fixed.trim();
+                let fixed = fixed.trim().to_string();
                 if fixed.is_empty() || fixed == para.trim() {
                     continue;
                 }
+                history.push((
+                    format!("{}（行 {}）", err.message, err.line),
+                    fixed.clone(),
+                ));
                 section.content = format!(
                     "{}{}{}",
                     &section.content[..span.content_start],
