@@ -462,11 +462,11 @@ impl Component for App {
                 tasks,
                 task_stats,
                 current_task,
-                pages_total,
                 pages_ok,
                 pages_fail,
                 tokens_in,
                 tokens_out,
+                pages_total: _,
             } => {
                 let spinner = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"][*spinner_frame % 8];
 
@@ -630,14 +630,16 @@ impl Component for App {
                 fn fmt_tokens(n: usize) -> String {
                     if n >= 10000 { format!("{:.1}万", n as f64 / 10000.0) } else { n.to_string() }
                 }
-                let pages_ratio = if *pages_total > 0 { *pages_ok as f64 / *pages_total as f64 } else { 0.0 };
+                let pages_ratio = if *pages_ok + *pages_fail > 0 {
+                    *pages_ok as f64 / (*pages_ok + *pages_fail) as f64
+                } else {
+                    0.0
+                };
                 let stat_line = Line::from(vec![
-                    Span::styled(format!("网页 {}", pages_total), GRAY),
+                    Span::styled(format!("成功 {}", pages_ok), TEAL),
                     Span::raw("  "),
                     Span::styled(micro_bar(pages_ratio, 10), TEAL),
                     Span::raw("  │  "),
-                    Span::styled(format!("成功 {}", pages_ok), TEAL),
-                    Span::raw("  "),
                     Span::styled(format!("失败 {}", pages_fail), if *pages_fail > 0 { RED } else { GRAY }),
                     Span::raw("  │  "),
                     Span::styled(format!("词元 {}", fmt_tokens(*tokens_in + *tokens_out)), GRAY),
