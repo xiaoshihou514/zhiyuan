@@ -491,7 +491,7 @@ impl Component for App {
                         Constraint::Length(1),
                         Constraint::Length(3),
                         Constraint::Min(5),
-                        Constraint::Length(1),
+                        Constraint::Length(10),
                         Constraint::Length(1),
                     ])
                     .split(inner);
@@ -575,54 +575,56 @@ impl Component for App {
                     .collect();
                 frame.render_widget(Paragraph::new(log_text), panes[1]);
 
-                if let Some(q) = quality {
-                    fn bar(v: f64, width: usize, color: Color) -> Line<'static> {
-                        let filled = (v * width as f64).round() as usize;
-                        let empty = width.saturating_sub(filled);
-                        let bar_str: String = format!(
-                            "{}{}",
-                            "█".repeat(filled),
-                            "░".repeat(empty)
-                        );
-                        Line::from(vec![
-                            Span::styled(bar_str, Style::new().fg(color)),
-                        ])
-                    }
-                    let gauge_lines = vec![
-                        Line::from(vec![
-                            Span::styled("覆盖  ", GRAY),
-                            Span::styled(format!("{:>5.0}%", q.coverage * 100.0), WARM),
-                        ]),
-                        bar(q.coverage, 20, TEAL),
-                        Line::from(vec![
-                            Span::styled("可靠  ", GRAY),
-                            Span::styled(format!("{:>5.0}%", q.reliability * 100.0), WARM),
-                        ]),
-                        bar(q.reliability, 20, TEAL),
-                        Line::from(vec![
-                            Span::styled("深度  ", GRAY),
-                            Span::styled(format!("{:>5.0}%", q.depth * 100.0), WARM),
-                        ]),
-                        bar(q.depth, 20, STEEL),
-                        Line::from(vec![
-                            Span::styled("多样  ", GRAY),
-                            Span::styled(format!("{:>5.0}%", q.freshness * 100.0), WARM),
-                        ]),
-                        bar(q.freshness, 20, STEEL),
-                        Line::from(vec![
-                            Span::styled("总评分", GRAY),
-                            Span::styled(format!("  {:>.2}", q.overall), Style::new().fg(GOLD).bold()),
-                        ]),
-                    ];
-                    frame.render_widget(
-                        Paragraph::new(gauge_lines)
-                            .block(Block::default()
-                                .borders(Borders::ALL)
-                                .title(Line::from(Span::styled("── 质量 ──", GRAY))),
-                            ),
-                        chunks[3],
+                fn bar(v: f64, width: usize, color: Color) -> Line<'static> {
+                    let filled = (v * width as f64).round() as usize;
+                    let empty = width.saturating_sub(filled);
+                    let bar_str: String = format!(
+                        "{}{}",
+                        "█".repeat(filled),
+                        "░".repeat(empty)
                     );
+                    Line::from(vec![
+                        Span::styled(bar_str, Style::new().fg(color)),
+                    ])
                 }
+                let (cq, cr, cd, cf, co) = match quality {
+                    Some(q) => (q.coverage, q.reliability, q.depth, q.freshness, q.overall),
+                    None => (0.0, 0.0, 0.0, 0.0, 0.0),
+                };
+                let gauge_lines = vec![
+                    Line::from(vec![
+                        Span::styled("覆盖  ", GRAY),
+                        Span::styled(format!("{:>5.0}%", cq * 100.0), WARM),
+                    ]),
+                    bar(cq, 20, TEAL),
+                    Line::from(vec![
+                        Span::styled("可靠  ", GRAY),
+                        Span::styled(format!("{:>5.0}%", cr * 100.0), WARM),
+                    ]),
+                    bar(cr, 20, TEAL),
+                    Line::from(vec![
+                        Span::styled("深度  ", GRAY),
+                        Span::styled(format!("{:>5.0}%", cd * 100.0), WARM),
+                    ]),
+                    bar(cd, 20, STEEL),
+                    Line::from(vec![
+                        Span::styled("多样  ", GRAY),
+                        Span::styled(format!("{:>5.0}%", cf * 100.0), WARM),
+                    ]),
+                    bar(cf, 20, STEEL),
+                    Line::from(vec![
+                        Span::styled("总评分", GRAY),
+                        Span::styled(format!("  {:>.2}", co), Style::new().fg(GOLD).bold()),
+                    ]),
+                ];
+                frame.render_widget(
+                    Paragraph::new(gauge_lines)
+                        .block(Block::default()
+                            .borders(Borders::ALL)
+                            .title(Line::from(Span::styled("── 质量 ──", GRAY))),
+                        ),
+                    chunks[3],
+                );
 
                 // 状态栏
                 fn micro_bar(ratio: f64, width: usize) -> String {
