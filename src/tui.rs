@@ -579,11 +579,16 @@ impl Component for App {
                                 "完成" => TEAL,
                                 _ => GRAY,
                             };
+                            let pct_str = if s.pages_ok + s.pages_fail == 0 {
+                                if s.phase == "完成" { "  —".into() } else { "  0%".into() }
+                            } else {
+                                format!("{:>3.0}%", ratio * 100.0)
+                            };
                             lines.push(Line::from(vec![
                                 Span::raw("    "),
                                 Span::styled(&s.phase, phase_color),
                                 Span::raw("  "),
-                                Span::styled(format!("{:>3.0}%", ratio * 100.0), GRAY),
+                                Span::styled(pct_str, GRAY),
                             ]));
                         }
                         lines
