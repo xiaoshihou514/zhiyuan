@@ -255,71 +255,95 @@ async fn main() -> anyhow::Result<()> {
             }
             Err(_) => {}
         }
+
+        // 检查是否需要启动 PDF 生成
+        if let Some(component) = app.get_component_mut(&Id::App) {
+            let any = component.as_any_mut();
+            if let Some(comp) = any.downcast_mut::<App>() {
+                if comp.take_pdf_request() {
+                    if let Some(report) = comp.report().cloned() {
+                        let tx = event_tx.clone();
+                        let font_paths = vec![config.pdf.font.clone()];
+                        let pdf_filename = report
+                            .title
+                            .chars()
+                            .map(|c| {
+                                if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { ' ' }
+                            })
+                            .collect::<String>()
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join("_")
+                            .trim_end_matches('_')
+                            .to_string()
+                            + ".pdf";
+                        let pdf_path = std::path::PathBuf::from(&pdf_filename);
+                        let typ_path = session_dir.join("report.typ");
+                        let llm = llm.clone_box();
+
+                        tokio::spawn(async move {
+                            let tx = tx;
+                            let mut report = report;
+
+                            loop {
+                                let (source, source_map) = pdf::generate_typst_source(&report);
+                                let _ = std::fs::write(&typ_path, &source);
+                                let _ = tx.send(TuiEvent::PdfMessage(
+                                    format!("✓ Typst 源码已保存到 {:?}", typ_path.file_name().unwrap_or_default())
+                                ));
+
+                                match pdf::compile_source_detailed(&source, &font_paths) {
+                                    Ok(pdf_bytes) => {
+                                        match std::fs::write(&pdf_path, &pdf_bytes) {
+                                            Ok(()) => {
+                                                let _ = tx.send(TuiEvent::PdfMessage(
+                                                    format!("✓ PDF 已生成: {}", pdf_filename)
+                                                ));
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(TuiEvent::PdfMessage(
+                                                    format!("✗ PDF 写入失败: {e}")
+                                                ));
+                                            }
+                                        }
+                                        let _ = tx.send(TuiEvent::PdfDone);
+                                        break;
+                                    }
+                                    Err(errs) => {
+                                        for e in &errs {
+                                            let _ = tx.send(TuiEvent::PdfMessage(
+                                                format!("⚠ 错误（行 {}）: {}", e.line, e.message)
+                                            ));
+                                        }
+                                        let _ = tx.send(TuiEvent::PdfMessage(
+                                            "→ LLM 正在修复段落...".into()
+                                        ));
+                                        let fixed = fix_typst_errors(&*llm, &errs, &source_map, &mut report).await;
+                                        if !fixed {
+                                            let _ = tx.send(TuiEvent::PdfMessage(
+                                                "✗ 无法自动修复，请手动编辑 .typ 文件".into()
+                                            ));
+                                            let _ = tx.send(TuiEvent::PdfDone);
+                                            break;
+                                        }
+                                        let _ = tx.send(TuiEvent::PdfMessage(
+                                            "→ 修复完成，重新编译...".into()
+                                        ));
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
         let _ = adapter.draw(|f| {
             app.view(&Id::App, f, f.area());
         });
     }
 
     drop(adapter);
-
-    if let Some(component) = app.get_component_mut(&Id::App) {
-        let any = component.as_any_mut();
-        if let Some(comp) = any.downcast_mut::<App>() {
-            if let Some(report) = comp.report().cloned() {
-                let font_paths = vec![config.pdf.font.clone()];
-                let pdf_filename = report
-                    .title
-                    .chars()
-                    .map(|c| {
-                        if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
-                            c
-                        } else {
-                            ' '
-                        }
-                    })
-                    .collect::<String>()
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join("_")
-                    .trim_end_matches('_')
-                    .to_string()
-                    + ".pdf";
-                let pdf_path = std::path::Path::new(&pdf_filename);
-                let typ_path = session_dir.join("report.typ");
-
-                let mut report = report;
-                loop {
-                    let (source, source_map) = pdf::generate_typst_source(&report);
-                    let _ = std::fs::write(&typ_path, &source);
-
-                    match pdf::compile_source_detailed(&source, &font_paths) {
-                        Ok(pdf_bytes) => {
-                            if let Err(e) = std::fs::write(pdf_path, &pdf_bytes) {
-                                eprintln!("❌ PDF 写入失败: {e}");
-                            } else {
-                                println!("✅ PDF: {}", pdf_filename);
-                            }
-                            break;
-                        }
-                        Err(errs) => {
-                            eprintln!("⚠️ Typst 编译失败，正在尝试修复...");
-                            let fixed = tokio::runtime::Handle::current().block_on(async {
-                                fix_typst_errors(&*llm, &errs, &source_map, &mut report).await
-                            });
-                            if !fixed {
-                                eprintln!("❌ 无法自动修复:");
-                                for e in &errs {
-                                    eprintln!("  行 {}: {}", e.line, e.message);
-                                }
-                                eprintln!("Typst 源码已保存到 {typ_path:?}，请手动修正");
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     Ok(())
 }

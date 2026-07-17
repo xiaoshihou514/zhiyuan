@@ -27,6 +27,8 @@ pub enum TuiEvent {
     Progress(ProgressUpdate),
     LogLine(String),
     TokenUsage(usize, usize),
+    PdfMessage(String),
+    PdfDone,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -84,7 +86,11 @@ enum Phase {
     },
     Complete {
         report: ResearchReport,
-        pdf_message: String,
+    },
+    PdfGenerating {
+        report: ResearchReport,
+        messages: Vec<String>,
+        done: bool,
     },
     Error(String),
 }
@@ -94,6 +100,7 @@ pub struct App {
     event_rx: tokio::sync::mpsc::UnboundedReceiver<TuiEvent>,
     query_text: String,
     research_trigger: Option<tokio::sync::oneshot::Sender<(ResearchQuery, Option<ResearchPlan>)>>,
+    needs_pdf: bool,
 }
 
 impl App {
@@ -107,12 +114,18 @@ impl App {
             event_rx,
             query_text,
             research_trigger: Some(research_trigger),
+            needs_pdf: false,
         }
+    }
+
+    pub fn take_pdf_request(&mut self) -> bool {
+        std::mem::replace(&mut self.needs_pdf, false)
     }
 
     pub fn report(&self) -> Option<&ResearchReport> {
         match &self.phase {
-            Phase::Complete { report, .. } => Some(report),
+            Phase::Complete { report } => Some(report),
+            Phase::PdfGenerating { report, .. } => Some(report),
             _ => None,
         }
     }
@@ -132,6 +145,17 @@ impl App {
                     if let Phase::Researching { ref mut tokens_in, ref mut tokens_out, .. } = self.phase {
                         *tokens_in += prompt_tok;
                         *tokens_out += completion_tok;
+                    }
+                }
+                TuiEvent::PdfMessage(msg) => {
+                    if let Phase::PdfGenerating { ref mut messages, .. } = self.phase {
+                        messages.push(msg);
+                    }
+                }
+                TuiEvent::PdfDone => {
+                    if let Phase::PdfGenerating { ref mut done, ref mut messages, .. } = self.phase {
+                        *done = true;
+                        messages.push("PDF 生成完成".into());
                     }
                 }
             }
@@ -232,10 +256,7 @@ impl App {
                 }
             }
             ProgressUpdate::Report(report) => {
-                self.phase = Phase::Complete {
-                    pdf_message: "研究完成，按 q 退出以生成 PDF".into(),
-                    report,
-                };
+                self.phase = Phase::Complete { report };
             }
             ProgressUpdate::Error(e) => {
                 self.phase = Phase::Error(e);
@@ -320,6 +341,13 @@ impl Component for App {
             }
             Phase::Complete { .. } => {
                 Line::from(Span::styled("── 研究完成 ──", Style::new().fg(TEAL).bold()))
+            }
+            Phase::PdfGenerating { done, .. } => {
+                let status = if *done { "完成" } else { "生成中" };
+                Line::from(Span::styled(
+                    format!("── PDF {} ──", status),
+                    Style::new().fg(TEAL).bold(),
+                ))
             }
             Phase::Error(_) => Line::from(Span::styled("── 错误 ──", Style::new().fg(RED).bold())),
         };
@@ -555,7 +583,7 @@ impl Component for App {
                 ]);
                 frame.render_widget(Paragraph::new(stat_line), chunks[5]);
             }
-            Phase::Complete { report, pdf_message } => {
+            Phase::Complete { report } => {
                 let q = &report.quality_score;
                 let mut lines: Vec<Line> = Vec::new();
                 lines.push(Line::from(vec![
@@ -568,16 +596,10 @@ impl Component for App {
                 ]));
                 lines.push(Line::from(vec![
                     Span::styled("覆盖范围   ", GRAY),
-                    Span::styled(
-                        format!("{:.0}%", q.coverage * 100.0),
-                        GRAY,
-                    ),
+                    Span::styled(format!("{:.0}%", q.coverage * 100.0), GRAY),
                     Span::raw("  "),
                     Span::styled("可靠性 ", GRAY),
-                    Span::styled(
-                        format!("{:.0}%", q.reliability * 100.0),
-                        GRAY,
-                    ),
+                    Span::styled(format!("{:.0}%", q.reliability * 100.0), GRAY),
                     Span::raw("  "),
                     Span::styled("深度 ", GRAY),
                     Span::styled(format!("{:.0}%", q.depth * 100.0), GRAY),
@@ -587,12 +609,41 @@ impl Component for App {
                     Span::raw(report.sections.len().to_string()),
                 ]));
                 lines.push(Line::from(Span::styled(
-                    format!("\nPDF  {}", pdf_message),
+                    "\n研究完成，按 q 开始生成 PDF",
                     TEAL,
                 )));
                 lines.push(Line::from(
                     Span::styled("\n按 q 退出", GRAY),
                 ));
+                frame.render_widget(Paragraph::new(lines), inner);
+            }
+            Phase::PdfGenerating { messages, done, .. } => {
+                let mut lines: Vec<Line> = Vec::new();
+                lines.push(Line::from(vec![
+                    Span::styled("PDF 生成", Style::new().fg(TEAL).bold()),
+                ]));
+                for msg in messages.iter().rev().take(8).rev() {
+                    let color = if msg.starts_with('✓') {
+                        TEAL
+                    } else if msg.starts_with('✗') || msg.starts_with('❌') {
+                        RED
+                    } else if msg.starts_with('⚠') {
+                        GOLD
+                    } else {
+                        GRAY
+                    };
+                    lines.push(Line::from(Span::styled(msg.as_str(), color)));
+                }
+                if !done {
+                    lines.push(Line::from(Span::styled(
+                        "\n正在生成...",
+                        GRAY,
+                    )));
+                } else {
+                    lines.push(Line::from(
+                        Span::styled("\n按 q 退出", GRAY),
+                    ));
+                }
                 frame.render_widget(Paragraph::new(lines), inner);
             }
             Phase::Error(e) => {
@@ -624,7 +675,26 @@ impl AppComponent<Msg, NoUserEvent> for App {
     fn on(&mut self, ev: &Event<NoUserEvent>) -> Option<Msg> {
         match ev {
             Event::Keyboard(k) => match k.code {
-                Key::Char('q') | Key::Esc => return Some(Msg::Quit),
+                Key::Char('q') | Key::Esc => {
+                    match &self.phase {
+                        Phase::Complete { .. } => {
+                            // 切换到 PDF 生成阶段
+                            let phase = std::mem::replace(&mut self.phase, Phase::Loading);
+                            if let Phase::Complete { report } = phase {
+                                self.needs_pdf = true;
+                                self.phase = Phase::PdfGenerating {
+                                    messages: vec!["正在准备 PDF...".into()],
+                                    done: false,
+                                    report,
+                                };
+                            }
+                            None
+                        }
+                        Phase::PdfGenerating { done, .. } if *done => Some(Msg::Quit),
+                        Phase::PdfGenerating { .. } => None, // 编译中，忽略 q
+                        _ => Some(Msg::Quit),
+                    }
+                }
                 Key::Enter => {
                     if let Phase::PlanReview {
                         ref mut input,
