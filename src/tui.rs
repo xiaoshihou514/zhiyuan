@@ -533,11 +533,6 @@ impl Component for App {
                                     0.0
                                 };
                                 let bar_len = (ratio * 6.0).round() as usize;
-                                let tok = if s.tokens_out >= 10000 {
-                                    format!("{:.1}万", s.tokens_out as f64 / 10000.0)
-                                } else {
-                                    s.tokens_out.to_string()
-                                };
                                 lines.push(Line::from(vec![
                                     Span::raw("  "),
                                     Span::styled(
@@ -549,8 +544,6 @@ impl Component for App {
                                     Span::styled(format!("/{}", s.pages_total), GRAY),
                                     Span::raw("  "),
                                     Span::styled(format!("✗{}", s.pages_fail), if s.pages_fail > 0 { RED } else { GRAY }),
-                                    Span::raw("  "),
-                                    Span::styled(format!("出{}", tok), WARM),
                                 ]));
                             }
                         }
