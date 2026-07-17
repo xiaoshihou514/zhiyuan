@@ -482,7 +482,6 @@ impl Component for App {
                         Constraint::Length(1),
                         Constraint::Length(3),
                         Constraint::Min(5),
-                        Constraint::Length(10),
                         Constraint::Length(1),
                     ])
                     .split(inner);
@@ -492,31 +491,23 @@ impl Component for App {
                     chunks[0],
                 );
 
-                let gauge = Gauge::default()
-                    .ratio(pct as f64)
-                    .label(format!("{} / {}", iteration, max_iterations))
-                    .use_unicode(true)
-                    .gauge_style(Style::new().fg(TEAL));
-                frame.render_widget(gauge, chunks[1]);
+                frame.render_widget(
+                    Gauge::default()
+                        .ratio(pct as f64)
+                        .label(format!("{} / {}", iteration, max_iterations))
+                        .use_unicode(true)
+                        .gauge_style(Style::new().fg(TEAL))
+                        .block(Block::default().borders(Borders::ALL)),
+                    chunks[1],
+                );
 
-                // 两栏分割：任务树 + 日志
+                // 两栏：左(35%) 任务+质量 | 右(65%) 日志
                 let panes = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
                     .split(chunks[2]);
 
-                // 左：任务树（每任务 2 行：名称 + 统计）
-                fn fmt_task_stats(s: &TaskStat) -> String {
-                    if s.pages_total == 0 && s.tokens_out == 0 {
-                        return String::new();
-                    }
-                    let tok = if s.tokens_out >= 10000 {
-                        format!("{:.1}万", s.tokens_out as f64 / 10000.0)
-                    } else {
-                        s.tokens_out.to_string()
-                    };
-                    format!("  {}页 ✓{} ✗{}  输出{}", s.pages_total, s.pages_ok, s.pages_fail, tok)
-                }
+                // 左栏：任务
                 let task_lines: Vec<Line> = tasks
                     .iter()
                     .enumerate()
@@ -534,23 +525,84 @@ impl Component for App {
                             style,
                         ))];
                         if i < task_stats.len() {
-                            let s = fmt_task_stats(&task_stats[i]);
-                            if !s.is_empty() {
-                                lines.push(Line::from(Span::styled(s, GRAY)));
+                            let s = &task_stats[i];
+                            if s.pages_total > 0 || s.tokens_out > 0 {
+                                let ratio = if s.pages_total > 0 {
+                                    s.pages_ok as f64 / s.pages_total as f64
+                                } else {
+                                    0.0
+                                };
+                                let bar_len = (ratio * 6.0).round() as usize;
+                                let tok = if s.tokens_out >= 10000 {
+                                    format!("{:.1}万", s.tokens_out as f64 / 10000.0)
+                                } else {
+                                    s.tokens_out.to_string()
+                                };
+                                lines.push(Line::from(vec![
+                                    Span::raw("  "),
+                                    Span::styled(
+                                        format!("{}{}", "▊".repeat(bar_len), "·".repeat(6usize.saturating_sub(bar_len))),
+                                        TEAL,
+                                    ),
+                                    Span::raw(" "),
+                                    Span::styled(format!("{}", s.pages_ok), TEAL),
+                                    Span::styled(format!("/{}", s.pages_total), GRAY),
+                                    Span::raw("  "),
+                                    Span::styled(format!("✗{}", s.pages_fail), if s.pages_fail > 0 { RED } else { GRAY }),
+                                    Span::raw("  "),
+                                    Span::styled(format!("出{}", tok), WARM),
+                                ]));
                             }
                         }
                         lines
                     })
                     .collect();
-                let task_pane = Block::default().borders(Borders::RIGHT);
-                let task_area = task_pane.inner(panes[0]);
-                frame.render_widget(task_pane, panes[0]);
-                frame.render_widget(
-                    Paragraph::new(task_lines),
-                    task_area,
-                );
 
-                // 右：日志
+                let left_split = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(1),
+                        Constraint::Min(1),
+                        Constraint::Length(1),
+                        Constraint::Length(10),
+                    ])
+                    .split(panes[0]);
+
+                frame.render_widget(Paragraph::new("── 任务 ──").fg(GRAY), left_split[0]);
+                frame.render_widget(Paragraph::new(task_lines), left_split[1]);
+
+                // 左栏：质量
+                fn bar(v: f64, width: usize, color: Color) -> Line<'static> {
+                    let filled = (v * width as f64).round() as usize;
+                    let empty = width.saturating_sub(filled);
+                    Line::from(vec![
+                        Span::styled(format!("{}{}", "█".repeat(filled), "░".repeat(empty)), Style::new().fg(color)),
+                    ])
+                }
+                let (cq, cr, cd, cf, co) = match quality {
+                    Some(q) => (q.coverage, q.reliability, q.depth, q.freshness, q.overall),
+                    None => (0.0, 0.0, 0.0, 0.0, 0.0),
+                };
+                let gauge_lines = vec![
+                    Line::from(vec![Span::styled("覆盖  ", GRAY), Span::styled(format!("{:>5.0}%", cq * 100.0), WARM)]),
+                    bar(cq, 14, TEAL),
+                    Line::from(vec![Span::styled("可靠  ", GRAY), Span::styled(format!("{:>5.0}%", cr * 100.0), WARM)]),
+                    bar(cr, 14, TEAL),
+                    Line::from(vec![Span::styled("深度  ", GRAY), Span::styled(format!("{:>5.0}%", cd * 100.0), WARM)]),
+                    bar(cd, 14, STEEL),
+                    Line::from(vec![Span::styled("多样  ", GRAY), Span::styled(format!("{:>5.0}%", cf * 100.0), WARM)]),
+                    bar(cf, 14, STEEL),
+                    Line::from(vec![Span::styled("总评分", GRAY), Span::styled(format!("  {:>.2}", co), Style::new().fg(GOLD).bold())]),
+                ];
+                frame.render_widget(Paragraph::new("── 质量 ──").fg(GRAY), left_split[2]);
+                frame.render_widget(Paragraph::new(gauge_lines), left_split[3]);
+
+                // 右栏：日志
+                let right_split = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(1), Constraint::Min(1)])
+                    .split(panes[1]);
+
                 let visible = 16usize;
                 let max_start = log_lines.len().saturating_sub(visible);
                 let start = max_start.saturating_sub(*log_scroll).min(max_start);
@@ -567,74 +619,16 @@ impl Component for App {
                         Line::from(Span::styled(d, color))
                     })
                     .collect();
-                frame.render_widget(Paragraph::new(log_text), panes[1]);
-
-                fn bar(v: f64, width: usize, color: Color) -> Line<'static> {
-                    let filled = (v * width as f64).round() as usize;
-                    let empty = width.saturating_sub(filled);
-                    let bar_str: String = format!(
-                        "{}{}",
-                        "█".repeat(filled),
-                        "░".repeat(empty)
-                    );
-                    Line::from(vec![
-                        Span::styled(bar_str, Style::new().fg(color)),
-                    ])
-                }
-                let (cq, cr, cd, cf, co) = match quality {
-                    Some(q) => (q.coverage, q.reliability, q.depth, q.freshness, q.overall),
-                    None => (0.0, 0.0, 0.0, 0.0, 0.0),
-                };
-                let gauge_lines = vec![
-                    Line::from(vec![
-                        Span::styled("覆盖  ", GRAY),
-                        Span::styled(format!("{:>5.0}%", cq * 100.0), WARM),
-                    ]),
-                    bar(cq, 20, TEAL),
-                    Line::from(vec![
-                        Span::styled("可靠  ", GRAY),
-                        Span::styled(format!("{:>5.0}%", cr * 100.0), WARM),
-                    ]),
-                    bar(cr, 20, TEAL),
-                    Line::from(vec![
-                        Span::styled("深度  ", GRAY),
-                        Span::styled(format!("{:>5.0}%", cd * 100.0), WARM),
-                    ]),
-                    bar(cd, 20, STEEL),
-                    Line::from(vec![
-                        Span::styled("多样  ", GRAY),
-                        Span::styled(format!("{:>5.0}%", cf * 100.0), WARM),
-                    ]),
-                    bar(cf, 20, STEEL),
-                    Line::from(vec![
-                        Span::styled("总评分", GRAY),
-                        Span::styled(format!("  {:>.2}", co), Style::new().fg(GOLD).bold()),
-                    ]),
-                ];
-                frame.render_widget(
-                    Paragraph::new(gauge_lines)
-                        .block(Block::default()
-                            .borders(Borders::ALL)
-                            .title(Line::from(Span::styled("── 质量 ──", GRAY))),
-                        ),
-                    chunks[3],
-                );
+                frame.render_widget(Paragraph::new("── 日志 ──").fg(GRAY), right_split[0]);
+                frame.render_widget(Paragraph::new(log_text), right_split[1]);
 
                 // 状态栏
                 fn micro_bar(ratio: f64, width: usize) -> String {
                     let filled = (ratio * width as f64).round() as usize;
-                    format!(
-                        "{}{}",
-                        "▊".repeat(filled.min(width)),
-                        "·".repeat(width.saturating_sub(filled))
-                    )
+                    format!("{}{}", "▊".repeat(filled.min(width)), "·".repeat(width.saturating_sub(filled)))
                 }
                 fn fmt_tokens(n: usize) -> String {
-                    if n >= 10000 {
-                        format!("{:.1}万", n as f64 / 10000.0)
-                    } else {
-                        n.to_string()
-                    }
+                    if n >= 10000 { format!("{:.1}万", n as f64 / 10000.0) } else { n.to_string() }
                 }
                 let pages_ratio = if *pages_total > 0 { *pages_ok as f64 / *pages_total as f64 } else { 0.0 };
                 let stat_line = Line::from(vec![
@@ -648,7 +642,7 @@ impl Component for App {
                     Span::raw("  │  "),
                     Span::styled(format!("词元 {}", fmt_tokens(*tokens_in + *tokens_out)), GRAY),
                 ]);
-                frame.render_widget(Paragraph::new(stat_line), chunks[4]);
+                frame.render_widget(Paragraph::new(stat_line), chunks[3]);
             }
             Phase::Complete { report } => {
                 let q = &report.quality_score;
