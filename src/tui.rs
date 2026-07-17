@@ -20,6 +20,8 @@ const GOLD: Color = Color::Rgb(212, 167, 106);
 const TEAL: Color = Color::Rgb(91, 173, 171);
 const RED: Color = Color::Rgb(196, 85, 76);
 const GRAY: Color = Color::Rgb(136, 143, 160);
+const STEEL: Color = Color::Rgb(74, 111, 165);
+const WARM: Color = Color::Rgb(232, 213, 183);
 
 #[derive(Debug, Clone)]
 pub enum TuiEvent {
@@ -505,11 +507,11 @@ impl Component for App {
                     .enumerate()
                     .map(|(i, t)| {
                         let (icon, style) = if i < *current_task {
-                            ("✓", Style::new().fg(TEAL))
+                            ("◆", Style::new().fg(TEAL))
                         } else if i == *current_task {
-                            ("→", Style::new().fg(GOLD).bold())
+                            ("●", Style::new().fg(GOLD).bold())
                         } else {
-                            ("◻", Style::new().fg(GRAY))
+                            ("○", Style::new().fg(GRAY))
                         };
                         Line::from(Span::styled(
                             format!(" {}  {}", icon, t),
@@ -542,25 +544,73 @@ impl Component for App {
                     .skip(start)
                     .map(|l| {
                         let d: String = l.chars().take(60).collect();
-                        Line::from(Span::raw(d))
+                        let color = if d.starts_with('✓') { TEAL }
+                            else if d.starts_with('✗') { RED }
+                            else if d.starts_with('→') || d.starts_with('⏭') { GOLD }
+                            else if d.starts_with('ℹ') { STEEL }
+                            else { GRAY };
+                        Line::from(Span::styled(d, color))
                     })
                     .collect();
                 frame.render_widget(Paragraph::new(log_text), log_area);
 
                 if let Some(q) = quality {
-                    let q_line = Line::from(vec![
-                        Span::styled(format!("质量 {:.2}", q.overall), Style::new().fg(GOLD).bold()),
-                        Span::raw("  │  "),
-                        Span::styled(format!("覆盖 {:.0}%", q.coverage * 100.0), GRAY),
-                        Span::raw("  │  "),
-                        Span::styled(format!("可靠 {:.0}%", q.reliability * 100.0), GRAY),
-                        Span::raw("  │  "),
-                        Span::styled(format!("深度 {:.0}%", q.depth * 100.0), GRAY),
-                    ]);
-                    frame.render_widget(Paragraph::new(q_line), chunks[4]);
+                    fn bar(v: f64, width: usize, color: Color) -> Line<'static> {
+                        let filled = (v * width as f64).round() as usize;
+                        let empty = width.saturating_sub(filled);
+                        let bar_str: String = format!(
+                            "{}{}",
+                            "█".repeat(filled),
+                            "░".repeat(empty)
+                        );
+                        Line::from(vec![
+                            Span::styled(bar_str, Style::new().fg(color)),
+                        ])
+                    }
+                    let gauge_lines = vec![
+                        Line::from(vec![
+                            Span::styled("覆盖  ", GRAY),
+                            Span::styled(format!("{:>5.0}%", q.coverage * 100.0), WARM),
+                        ]),
+                        bar(q.coverage, 20, TEAL),
+                        Line::from(vec![
+                            Span::styled("可靠  ", GRAY),
+                            Span::styled(format!("{:>5.0}%", q.reliability * 100.0), WARM),
+                        ]),
+                        bar(q.reliability, 20, TEAL),
+                        Line::from(vec![
+                            Span::styled("深度  ", GRAY),
+                            Span::styled(format!("{:>5.0}%", q.depth * 100.0), WARM),
+                        ]),
+                        bar(q.depth, 20, STEEL),
+                        Line::from(vec![
+                            Span::styled("多样  ", GRAY),
+                            Span::styled(format!("{:>5.0}%", q.freshness * 100.0), WARM),
+                        bar(q.freshness, 20, STEEL),
+                        Line::from(vec![
+                            Span::styled("总评分", GRAY),
+                            Span::styled(format!("  {:>.2}", q.overall), Style::new().fg(GOLD).bold()),
+                        ]),
+                    ];
+                    frame.render_widget(
+                        Paragraph::new(gauge_lines)
+                            .block(Block::default()
+                                .borders(Borders::ALL)
+                                .title(Line::from(Span::styled("── 质量 ──", GRAY))),
+                            ),
+                        chunks[4],
+                    );
                 }
 
                 // 状态栏
+                fn micro_bar(ratio: f64, width: usize) -> String {
+                    let filled = (ratio * width as f64).round() as usize;
+                    format!(
+                        "{}{}",
+                        "▊".repeat(filled.min(width)),
+                        "·".repeat(width.saturating_sub(filled))
+                    )
+                }
                 fn fmt_tokens(n: usize) -> String {
                     if n >= 10000 {
                         format!("{:.1}万", n as f64 / 10000.0)
@@ -570,16 +620,17 @@ impl Component for App {
                         n.to_string()
                     }
                 }
+                let pages_ratio = if *pages_total > 0 { *pages_ok as f64 / *pages_total as f64 } else { 0.0 };
                 let stat_line = Line::from(vec![
                     Span::styled(format!("网页 {}", pages_total), GRAY),
+                    Span::raw("  "),
+                    Span::styled(micro_bar(pages_ratio, 10), TEAL),
                     Span::raw("  │  "),
                     Span::styled(format!("成功 {}", pages_ok), TEAL),
-                    Span::raw("  │  "),
+                    Span::raw("  "),
                     Span::styled(format!("失败 {}", pages_fail), if *pages_fail > 0 { RED } else { GRAY }),
                     Span::raw("  │  "),
-                    Span::styled(format!("词元输入 {}", fmt_tokens(*tokens_in)), GRAY),
-                    Span::raw("  │  "),
-                    Span::styled(format!("输出 {}", fmt_tokens(*tokens_out)), GRAY),
+                    Span::styled(format!("词元 {}", fmt_tokens(*tokens_in + *tokens_out)), GRAY),
                 ]);
                 frame.render_widget(Paragraph::new(stat_line), chunks[5]);
             }
@@ -587,34 +638,57 @@ impl Component for App {
                 let q = &report.quality_score;
                 let mut lines: Vec<Line> = Vec::new();
                 lines.push(Line::from(vec![
-                    Span::styled("报告       ", GRAY),
+                    Span::styled("报告   ", GRAY),
                     Span::raw(&report.title),
                 ]));
                 lines.push(Line::from(vec![
-                    Span::styled("质量评分   ", GRAY),
-                    Span::styled(format!("{:.2}", q.overall), Style::new().fg(GOLD).bold()),
+                    Span::styled("质量   ", GRAY),
+                    Span::styled(format!("{:.2}  ", q.overall), Style::new().fg(GOLD).bold()),
                 ]));
+                lines.push(Line::from(Span::raw("")));
+
+                fn gauge(v: f64, width: usize, color: Color) -> Line<'static> {
+                    let filled = (v * width as f64).round() as usize;
+                    let bar: String = format!(
+                        "{}{}",
+                        "█".repeat(filled),
+                        "░".repeat(width.saturating_sub(filled))
+                    );
+                    Line::from(vec![
+                        Span::styled(bar, Style::new().fg(color)),
+                        Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", v * 100.0), WARM),
+                    ])
+                }
                 lines.push(Line::from(vec![
-                    Span::styled("覆盖范围   ", GRAY),
-                    Span::styled(format!("{:.0}%", q.coverage * 100.0), GRAY),
-                    Span::raw("  "),
-                    Span::styled("可靠性 ", GRAY),
-                    Span::styled(format!("{:.0}%", q.reliability * 100.0), GRAY),
-                    Span::raw("  "),
+                    Span::styled("覆盖 ", GRAY),
+                ]));
+                lines.push(gauge(q.coverage, 24, TEAL));
+                lines.push(Line::from(vec![
+                    Span::styled("可靠 ", GRAY),
+                ]));
+                lines.push(gauge(q.reliability, 24, TEAL));
+                lines.push(Line::from(vec![
                     Span::styled("深度 ", GRAY),
-                    Span::styled(format!("{:.0}%", q.depth * 100.0), GRAY),
                 ]));
+                lines.push(gauge(q.depth, 24, STEEL));
                 lines.push(Line::from(vec![
-                    Span::styled("章节数    ", GRAY),
-                    Span::raw(report.sections.len().to_string()),
+                    Span::styled("多样 ", GRAY),
+                ]));
+                lines.push(gauge(q.freshness, 24, STEEL));
+
+                lines.push(Line::from(Span::raw("")));
+                let findings_total: usize = report.sections.iter().map(|s| s.citations.len()).sum();
+                lines.push(Line::from(vec![
+                    Span::styled("章节", GRAY),
+                    Span::raw(format!(" {}  ", report.sections.len())),
+                    Span::styled("引用", GRAY),
+                    Span::raw(format!(" {}", findings_total)),
                 ]));
                 lines.push(Line::from(Span::styled(
                     "\n研究完成，按 q 开始生成 PDF",
                     TEAL,
                 )));
-                lines.push(Line::from(
-                    Span::styled("\n按 q 退出", GRAY),
-                ));
                 frame.render_widget(Paragraph::new(lines), inner);
             }
             Phase::PdfGenerating { messages, done, .. } => {

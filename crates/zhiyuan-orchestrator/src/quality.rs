@@ -85,7 +85,7 @@ impl QualityEvaluator {
         0.5 * multi_edge_ratio + 0.5 * multi_source_ratio
     }
 
-    /// 新鲜度：最新一轮迭代的发现占比
+    /// 多样性：最新一轮迭代的发现占比
     fn calc_freshness(&self, knowledge: &KnowledgeBase) -> f64 {
         if knowledge.findings.is_empty() {
             return 0.0;
