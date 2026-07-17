@@ -557,7 +557,7 @@ impl Component for App {
                         Constraint::Length(1),
                         Constraint::Min(1),
                         Constraint::Length(1),
-                        Constraint::Length(10),
+                        Constraint::Length(5),
                     ])
                     .split(panes[0]);
 
@@ -565,27 +565,40 @@ impl Component for App {
                 frame.render_widget(Paragraph::new(task_lines), left_split[1]);
 
                 // 左栏：质量
-                fn bar(v: f64, width: usize, color: Color) -> Line<'static> {
-                    let filled = (v * width as f64).round() as usize;
-                    let empty = width.saturating_sub(filled);
-                    Line::from(vec![
-                        Span::styled(format!("{}{}", "█".repeat(filled), "░".repeat(empty)), Style::new().fg(color)),
-                    ])
+                fn bar8(v: f64, color: Color) -> Span<'static> {
+                    let filled = (v * 8.0).round() as usize;
+                    Span::styled(
+                        format!("{}{}", "█".repeat(filled), "░".repeat(8usize.saturating_sub(filled))),
+                        Style::new().fg(color),
+                    )
                 }
                 let (cq, cr, cd, cf, co) = match quality {
                     Some(q) => (q.coverage, q.reliability, q.depth, q.freshness, q.overall),
                     None => (0.0, 0.0, 0.0, 0.0, 0.0),
                 };
                 let gauge_lines = vec![
-                    Line::from(vec![Span::styled("覆盖  ", GRAY), Span::styled(format!("{:>5.0}%", cq * 100.0), WARM)]),
-                    bar(cq, 14, TEAL),
-                    Line::from(vec![Span::styled("可靠  ", GRAY), Span::styled(format!("{:>5.0}%", cr * 100.0), WARM)]),
-                    bar(cr, 14, TEAL),
-                    Line::from(vec![Span::styled("深度  ", GRAY), Span::styled(format!("{:>5.0}%", cd * 100.0), WARM)]),
-                    bar(cd, 14, STEEL),
-                    Line::from(vec![Span::styled("多样  ", GRAY), Span::styled(format!("{:>5.0}%", cf * 100.0), WARM)]),
-                    bar(cf, 14, STEEL),
-                    Line::from(vec![Span::styled("总评分", GRAY), Span::styled(format!("  {:>.2}", co), Style::new().fg(GOLD).bold())]),
+                    Line::from(vec![
+                        Span::styled("覆盖", GRAY), Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cq * 100.0), WARM), Span::raw(" "),
+                        bar8(cq, TEAL),
+                        Span::raw("  "),
+                        Span::styled("可靠", GRAY), Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cr * 100.0), WARM), Span::raw(" "),
+                        bar8(cr, TEAL),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("深度", GRAY), Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cd * 100.0), WARM), Span::raw(" "),
+                        bar8(cd, STEEL),
+                        Span::raw("  "),
+                        Span::styled("多样", GRAY), Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cf * 100.0), WARM), Span::raw(" "),
+                        bar8(cf, STEEL),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("总评分", GRAY),
+                        Span::styled(format!("  {:>.2}", co), Style::new().fg(GOLD).bold()),
+                    ]),
                 ];
                 frame.render_widget(Paragraph::new("── 质量 ──").fg(GRAY), left_split[2]);
                 frame.render_widget(Paragraph::new(gauge_lines), left_split[3]);
