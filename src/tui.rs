@@ -609,7 +609,8 @@ impl Component for App {
                     .constraints([Constraint::Length(1), Constraint::Min(1)])
                     .split(panes[1]);
 
-                let visible = 16usize;
+                let log_area = right_split[1];
+                let visible = log_area.height as usize;
                 let max_start = log_lines.len().saturating_sub(visible);
                 let start = max_start.saturating_sub(*log_scroll).min(max_start);
                 let log_text: Vec<Line> = log_lines
@@ -626,7 +627,7 @@ impl Component for App {
                     })
                     .collect();
                 frame.render_widget(Paragraph::new("── 日志 ──").fg(GRAY), right_split[0]);
-                frame.render_widget(Paragraph::new(log_text), right_split[1]);
+                frame.render_widget(Paragraph::new(log_text), log_area);
 
                 // 状态栏
                 fn micro_bar(ratio: f64, width: usize) -> String {
