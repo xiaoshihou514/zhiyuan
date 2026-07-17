@@ -8,7 +8,7 @@ use tuirealm::{
         layout::{Alignment, Constraint, Direction, Layout, Rect},
         style::{Color, Style, Stylize},
         text::{Line, Span},
-        widgets::{Block, BorderType, Borders, Gauge, Paragraph, Wrap},
+        widgets::{Block, Borders, Gauge, Paragraph, Wrap},
     },
     state::State,
 };
@@ -384,9 +384,7 @@ impl Component for App {
         );
 
         // content body
-        let outer = Block::default().borders(Borders::ALL).border_type(BorderType::Plain);
-        let inner = outer.inner(chunks[1]);
-        frame.render_widget(outer, chunks[1]);
+        let inner = chunks[1];
 
         match &self.phase {
             Phase::Loading => {
@@ -429,11 +427,7 @@ impl Component for App {
                 } else {
                     String::new()
                 };
-                let outline_block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(Line::from(Span::styled("── 大纲 ──", GRAY)));
-                let outline_inner = outline_block.inner(chunks[2]);
-                frame.render_widget(outline_block, chunks[2]);
+                let outline_inner = chunks[2];
                 frame.render_widget(
                     Paragraph::new(outline_text).wrap(Wrap { trim: false }),
                     outline_inner,
@@ -445,11 +439,7 @@ impl Component for App {
                     format!("> {}", input.value())
                 };
                 frame.render_widget(
-                    Paragraph::new(input_display).block(
-                        Block::default()
-                            .borders(Borders::ALL)
-                            .title(Line::from(Span::styled("── 你的想法 ──", GRAY))),
-                    ),
+                    Paragraph::new(input_display),
                     chunks[3],
                 );
 
@@ -551,9 +541,12 @@ impl Component for App {
                         lines
                     })
                     .collect();
+                let task_pane = Block::default().borders(Borders::RIGHT);
+                let task_area = task_pane.inner(panes[0]);
+                frame.render_widget(task_pane, panes[0]);
                 frame.render_widget(
                     Paragraph::new(task_lines),
-                    panes[0],
+                    task_area,
                 );
 
                 // 右：日志
