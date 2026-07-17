@@ -118,35 +118,37 @@ impl ExtractorAgent {
         results: &[SearchResult],
         context: &str,
     ) -> Result<Vec<ExtractedContent>> {
+        let targets: Vec<&SearchResult> = results
+            .iter()
+            .filter(|r| !self.is_blocked(&r.url) && self.is_relevant(r, context))
+            .collect();
+
+        tracing::info!("总数" = %targets.len(), "提取器选定URL");
+
         let mut extracted = Vec::new();
-
-        tracing::info!("总数" = %results.len(), "提取器选定URL");
-
-        for result in results {
-            if self.is_blocked(&result.url) {
-                tracing::info!("⏭ 跳过黑名单域名: {}", result.url);
-                continue;
-            }
-
-            if !self.is_relevant(result, context) {
-                tracing::info!(
-                    "⏭ 预筛跳过 [{}]: 标题/摘要不匹配",
-                    result.title
-                );
-                continue;
-            }
-
-            tracing::debug!(url = %result.url, "正在提取内容");
-            match self.extractor.extract(result, context).await {
-                Ok(content) => {
-                    tracing::info!(
-                        "✓ 提取成功 [{}]: {} 字符",
-                        content.title,
-                        content.text.len()
-                    );
-                    extracted.push(content);
+        for chunk in targets.chunks(32) {
+            let futures: Vec<_> = chunk
+                .iter()
+                .map(|r| {
+                    let url = r.url.clone();
+                    async move {
+                        let result = self.extractor.extract(r, context).await;
+                        (url, result)
+                    }
+                })
+                .collect();
+            for (url, result) in futures::future::join_all(futures).await {
+                match result {
+                    Ok(content) => {
+                        tracing::info!(
+                            "✓ 提取成功 [{}]: {} 字符",
+                            content.title,
+                            content.text.len()
+                        );
+                        extracted.push(content);
+                    }
+                    Err(e) => tracing::warn!("✗ 提取失败 {}: {e}", url),
                 }
-                Err(e) => tracing::warn!("✗ 提取失败 {}: {e}", result.url),
             }
         }
 
