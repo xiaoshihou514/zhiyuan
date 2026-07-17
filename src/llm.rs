@@ -111,8 +111,8 @@ impl LlmClient for OpenaiLlm {
             temperature: Some(0.3),
         };
 
-        let max_retries = 5u32;
-        for attempt in 1..=max_retries {
+        let mut attempt = 1u32;
+        loop {
             let mut req = self.client.post(&self.endpoint).json(&body);
             if !self.api_key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", self.api_key));
@@ -123,8 +123,9 @@ impl LlmClient for OpenaiLlm {
                     let status = resp.status();
                     if !status.is_success() {
                         let text = resp.text().await.unwrap_or_default();
-                        self.log(&format!("[{now}] 尝试 {attempt}/{max_retries}: HTTP {status}: {text}"));
-                        tracing::warn!("LLM 返回 {status}: {text}，{attempt}/{max_retries} 次重试...");
+                        self.log(&format!("[{now}] 尝试 {attempt}: HTTP {status}: {text}"));
+                        tracing::warn!("LLM 返回 {status}: {text}，重试...");
+                        attempt += 1;
                         tokio::time::sleep(Duration::from_secs(2)).await;
                         continue;
                     }
@@ -152,26 +153,23 @@ impl LlmClient for OpenaiLlm {
                                 }
                                 return Ok(content);
                             }
-                            self.log(&format!("[{now}] 尝试 {attempt}/{max_retries}: 空响应"));
-                            tracing::warn!("LLM 返回空响应，{attempt}/{max_retries} 次重试...");
+                            self.log(&format!("[{now}] 尝试 {attempt}: 空响应"));
+                            tracing::warn!("LLM 返回空响应，重试...");
                         }
                         Err(e) => {
-                            self.log(&format!("[{now}] 尝试 {attempt}/{max_retries}: JSON 解析失败: {e}"));
-                            tracing::warn!("LLM JSON 解析失败: {e}，{attempt}/{max_retries} 次重试...");
+                            self.log(&format!("[{now}] 尝试 {attempt}: JSON 解析失败: {e}"));
+                            tracing::warn!("LLM JSON 解析失败: {e}，重试...");
                         }
                     }
                 }
                 Err(e) => {
-                    self.log(&format!("[{now}] 尝试 {attempt}/{max_retries}: 请求失败: {e}"));
-                    tracing::warn!("LLM 请求失败: {e}，{attempt}/{max_retries} 次重试...");
+                    self.log(&format!("[{now}] 尝试 {attempt}: 请求失败: {e}"));
+                    tracing::warn!("LLM 请求失败: {e}，重试...");
                 }
             }
-            tokio::time::sleep(Duration::from_secs(2u64 * attempt as u64)).await;
+            attempt += 1;
+            tokio::time::sleep(Duration::from_secs((2u64 * attempt as u64).min(60))).await;
         }
-
-        let err = format!("LLM 请求失败（重试 {max_retries} 次后放弃）");
-        self.log(&format!("[{now}] {err}"));
-        Err(zhiyuan_core::Error::Llm(err))
     }
 
     fn clone_box(&self) -> Box<dyn LlmClient> {

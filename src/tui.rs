@@ -16,6 +16,14 @@ use zhiyuan_core::{
     ProgressUpdate, QualityScore, ResearchPlan, ResearchQuery, ResearchReport, Uuid,
 };
 
+#[derive(Debug, Clone, Default)]
+struct TaskStat {
+    pages_total: usize,
+    pages_ok: usize,
+    pages_fail: usize,
+    tokens_out: usize,
+}
+
 const GOLD: Color = Color::Rgb(212, 167, 106);
 const TEAL: Color = Color::Rgb(91, 173, 171);
 const RED: Color = Color::Rgb(196, 85, 76);
@@ -77,6 +85,7 @@ enum Phase {
         spinner_frame: usize,
         log_scroll: usize,
         tasks: Vec<String>,
+        task_stats: Vec<TaskStat>,
         current_task: usize,
         pages_total: usize,
         pages_ok: usize,
@@ -163,6 +172,7 @@ impl App {
     }
 
     fn start_researching(&mut self, tasks: Vec<String>) {
+        let stats = vec![TaskStat::default(); tasks.len().max(1)];
         self.phase = Phase::Researching {
             iteration: 0,
             max_iterations: 4,
@@ -172,6 +182,7 @@ impl App {
             spinner_frame: 0,
             log_scroll: 0,
             tasks,
+            task_stats: stats,
             current_task: 0,
             pages_total: 0,
             pages_ok: 0,
@@ -280,18 +291,40 @@ impl App {
             ref mut pages_total,
             ref mut pages_ok,
             ref mut pages_fail,
+            ref mut tokens_out,
+            ref mut task_stats,
+            ref current_task,
             ..
         } = self.phase
         {
-            // 计数：提取结果
             if trimmed.contains("提取器选定URL 总数=") {
                 if let Some(n) = trimmed.rsplit('=').next().and_then(|s| s.trim().parse().ok()) {
                     *pages_total = n;
+                    if *current_task < task_stats.len() {
+                        task_stats[*current_task].pages_total = n;
+                    }
                 }
             } else if trimmed.contains("✓ 提取成功") {
                 *pages_ok += 1;
+                if *current_task < task_stats.len() {
+                    task_stats[*current_task].pages_ok += 1;
+                }
             } else if trimmed.contains("✗ 提取失败") {
                 *pages_fail += 1;
+                if *current_task < task_stats.len() {
+                    task_stats[*current_task].pages_fail += 1;
+                }
+            }
+            if let Some(n_pos) = trimmed.find("RESPONSE(") {
+                let rest = &trimmed[n_pos + 9..];
+                if let Some(end) = rest.find(" chars") {
+                    if let Ok(n) = rest[..end].parse::<usize>() {
+                        *tokens_out += n;
+                        if *current_task < task_stats.len() {
+                            task_stats[*current_task].tokens_out += n;
+                        }
+                    }
+                }
             }
 
             log_lines.push(trimmed);
@@ -436,6 +469,7 @@ impl Component for App {
                 spinner_frame,
                 log_scroll,
                 tasks,
+                task_stats,
                 current_task,
                 pages_total,
                 pages_ok,
@@ -477,14 +511,25 @@ impl Component for App {
                 // 两栏分割：任务树 + 日志
                 let panes = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+                    .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
                     .split(chunks[2]);
 
-                // 左：任务树
+                // 左：任务树（每任务 2 行：名称 + 统计）
+                fn fmt_task_stats(s: &TaskStat) -> String {
+                    if s.pages_total == 0 && s.tokens_out == 0 {
+                        return String::new();
+                    }
+                    let tok = if s.tokens_out >= 10000 {
+                        format!("{:.1}万", s.tokens_out as f64 / 10000.0)
+                    } else {
+                        s.tokens_out.to_string()
+                    };
+                    format!("  {}页 ✓{} ✗{}  输出{}", s.pages_total, s.pages_ok, s.pages_fail, tok)
+                }
                 let task_lines: Vec<Line> = tasks
                     .iter()
                     .enumerate()
-                    .map(|(i, t)| {
+                    .flat_map(|(i, t)| {
                         let (icon, style) = if i < *current_task {
                             ("◆", Style::new().fg(TEAL))
                         } else if i == *current_task {
@@ -492,14 +537,22 @@ impl Component for App {
                         } else {
                             ("○", Style::new().fg(GRAY))
                         };
-                        Line::from(Span::styled(
-                            format!(" {}  {}", icon, t),
+                        let label: String = t.chars().take(22).collect();
+                        let mut lines = vec![Line::from(Span::styled(
+                            format!(" {}  {}", icon, label),
                             style,
-                        ))
+                        ))];
+                        if i < task_stats.len() {
+                            let s = fmt_task_stats(&task_stats[i]);
+                            if !s.is_empty() {
+                                lines.push(Line::from(Span::styled(s, GRAY)));
+                            }
+                        }
+                        lines
                     })
                     .collect();
                 frame.render_widget(
-                    Paragraph::new(task_lines).wrap(Wrap { trim: false }),
+                    Paragraph::new(task_lines),
                     panes[0],
                 );
 
@@ -583,8 +636,6 @@ impl Component for App {
                 fn fmt_tokens(n: usize) -> String {
                     if n >= 10000 {
                         format!("{:.1}万", n as f64 / 10000.0)
-                    } else if n >= 1000 {
-                        format!("{:.1}千", n as f64 / 1000.0)
                     } else {
                         n.to_string()
                     }
