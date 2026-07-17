@@ -26,6 +26,7 @@ pub enum TuiEvent {
     PlanReady(ResearchPlan),
     Progress(ProgressUpdate),
     LogLine(String),
+    TokenUsage(usize, usize),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -75,6 +76,11 @@ enum Phase {
         log_scroll: usize,
         tasks: Vec<String>,
         current_task: usize,
+        pages_total: usize,
+        pages_ok: usize,
+        pages_fail: usize,
+        tokens_in: usize,
+        tokens_out: usize,
     },
     Complete {
         report: ResearchReport,
@@ -122,6 +128,12 @@ impl App {
                 }
                 TuiEvent::Progress(u) => self.handle_progress(u),
                 TuiEvent::LogLine(l) => self.add_log(l),
+                TuiEvent::TokenUsage(prompt_tok, completion_tok) => {
+                    if let Phase::Researching { ref mut tokens_in, ref mut tokens_out, .. } = self.phase {
+                        *tokens_in += prompt_tok;
+                        *tokens_out += completion_tok;
+                    }
+                }
             }
         }
     }
@@ -131,7 +143,7 @@ impl App {
             phase_name: String::new(),
             status_message: String::new(),
             iteration: 0,
-            max_iterations: 10,
+            max_iterations: 4,
             quality: None,
             findings_count: 0,
             log_lines: Vec::new(),
@@ -139,6 +151,11 @@ impl App {
             log_scroll: 0,
             tasks,
             current_task: 0,
+            pages_total: 0,
+            pages_ok: 0,
+            pages_fail: 0,
+            tokens_in: 0,
+            tokens_out: 0,
         };
     }
 
@@ -216,7 +233,7 @@ impl App {
             }
             ProgressUpdate::Report(report) => {
                 self.phase = Phase::Complete {
-                    pdf_message: "PDF 生成中...".into(),
+                    pdf_message: "研究完成，按 q 退出以生成 PDF".into(),
                     report,
                 };
             }
@@ -242,10 +259,26 @@ impl App {
         if trimmed.is_empty() {
             return;
         }
+
         if let Phase::Researching {
-            ref mut log_lines, ..
+            ref mut log_lines,
+            ref mut pages_total,
+            ref mut pages_ok,
+            ref mut pages_fail,
+            ..
         } = self.phase
         {
+            // 计数：提取结果
+            if trimmed.contains("提取器选定URL 总数=") {
+                if let Some(n) = trimmed.rsplit('=').next().and_then(|s| s.trim().parse().ok()) {
+                    *pages_total = n;
+                }
+            } else if trimmed.contains("✓ 提取成功") {
+                *pages_ok += 1;
+            } else if trimmed.contains("✗ 提取失败") {
+                *pages_fail += 1;
+            }
+
             log_lines.push(trimmed);
             if log_lines.len() > 50 {
                 log_lines.remove(0);
@@ -384,6 +417,11 @@ impl Component for App {
                 log_scroll,
                 tasks,
                 current_task,
+                pages_total,
+                pages_ok,
+                pages_fail,
+                tokens_in,
+                tokens_out,
             } => {
                 let spinner = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"][*spinner_frame % 8];
                 let status = if !phase_name.is_empty() {
@@ -409,6 +447,7 @@ impl Component for App {
                         Constraint::Length(1),
                         Constraint::Length(3),
                         Constraint::Min(5),
+                        Constraint::Length(1),
                         Constraint::Length(1),
                     ])
                     .split(inner);
@@ -456,7 +495,8 @@ impl Component for App {
                             Block::default()
                                 .borders(Borders::ALL)
                                 .title(Line::from(Span::styled("── 任务 ──", GRAY))),
-                        ),
+                        )
+                        .wrap(Wrap { trim: false }),
                     panes[0],
                 );
 
@@ -491,6 +531,29 @@ impl Component for App {
                     ]);
                     frame.render_widget(Paragraph::new(q_line), chunks[4]);
                 }
+
+                // 状态栏
+                fn fmt_tokens(n: usize) -> String {
+                    if n >= 10000 {
+                        format!("{:.1}万", n as f64 / 10000.0)
+                    } else if n >= 1000 {
+                        format!("{:.1}千", n as f64 / 1000.0)
+                    } else {
+                        n.to_string()
+                    }
+                }
+                let stat_line = Line::from(vec![
+                    Span::styled(format!("网页 {}", pages_total), GRAY),
+                    Span::raw("  │  "),
+                    Span::styled(format!("成功 {}", pages_ok), TEAL),
+                    Span::raw("  │  "),
+                    Span::styled(format!("失败 {}", pages_fail), if *pages_fail > 0 { RED } else { GRAY }),
+                    Span::raw("  │  "),
+                    Span::styled(format!("词元输入 {}", fmt_tokens(*tokens_in)), GRAY),
+                    Span::raw("  │  "),
+                    Span::styled(format!("输出 {}", fmt_tokens(*tokens_out)), GRAY),
+                ]);
+                frame.render_widget(Paragraph::new(stat_line), chunks[5]);
             }
             Phase::Complete { report, pdf_message } => {
                 let q = &report.quality_score;

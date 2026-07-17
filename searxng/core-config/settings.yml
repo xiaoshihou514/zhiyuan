@@ -14,22 +14,59 @@ ui:
   default_theme: simple
   default_locale: zh-Hans-CN
 outgoing:
-  request_timeout: 10.0
-  max_request_timeout: 15.0
+  request_timeout: 15.0
+  max_request_timeout: 25.0
 engines:
   - name: baidu
     disabled: false
     timeout: 5.0
+    weight: 0.6
+  - name: so.360.cn
+    disabled: false
+    timeout: 5.0
+    weight: 0.6
   - name: sogou
     disabled: false
     timeout: 5.0
+    weight: 0.6
+  - name: bilibili
+    disabled: false
+    timeout: 5.0
+    weight: 0.7
+  - name: sogou_wechat
+    disabled: false
+    timeout: 5.0
+    weight: 0.6
   - name: google
-    disabled: true
-  - name: duckduckgo
-    disabled: true
+    disabled: false
+    timeout: 8.0
   - name: brave
-    disabled: true
-  - name: bing
-    disabled: true
-  - name: startpage
-    disabled: true
+    disabled: false
+    timeout: 8.0
+  - name: duckduckgo
+    disabled: false
+    timeout: 8.0
+  - name: arxiv
+    disabled: false
+    timeout: 10.0
+  - name: pubmed
+    disabled: false
+    timeout: 10.0
+  - name: semantic_scholar
+    disabled: false
+    timeout: 10.0
+  - name: openalex
+    disabled: false
+    timeout: 10.0
+  - name: github
+    disabled: false
+    timeout: 8.0
+  - name: gitlab
+    disabled: false
+    timeout: 8.0
+  - name: npm
+    disabled: false
+    timeout: 8.0
+  - name: crates
+    disabled: false
+    timeout: 8.0

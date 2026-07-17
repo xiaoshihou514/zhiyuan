@@ -23,7 +23,13 @@ impl SearcherAgent {
         task_description: &str,
         context: &str,
     ) -> Result<Vec<String>> {
-        self.query_planner.plan_queries(task_description, context).await
+        match self.query_planner.plan_queries(task_description, context).await {
+            Ok(q) => Ok(q),
+            Err(e) => {
+                tracing::warn!("搜索查询生成失败: {e}，降级使用任务描述作为搜索词");
+                Ok(vec![task_description.to_string()])
+            }
+        }
     }
 
     pub async fn execute_search(

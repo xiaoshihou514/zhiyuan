@@ -1,6 +1,16 @@
 [search]
 max_results = 10 # 每个搜索引擎最大结果数
 searxng_url = "http://localhost:8888" # 自建 SearXNG 实例地址
+blocked_domains = [
+    # 反爬虫过于严格
+    "zhihu.com",
+    "zhuanlan.zhihu.com",
+    "baike.baidu.com",
+    "xueshu.baidu.com",
+    "linkedin.com",
+    # 内容质量低
+    "csdn.net"
+]
 
 [llm]
 api_key = ""

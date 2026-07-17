@@ -12,6 +12,29 @@ use typst::LibraryExt;
 use typst::World;
 use zhiyuan_core::ResearchReport;
 
+pub struct ParaSpan {
+    pub section_idx: usize,
+    pub content_start: usize,
+    pub content_end: usize,
+    pub source_line_start: usize,
+    pub source_line_end: usize,
+}
+
+pub struct SourceMap {
+    pub spans: Vec<ParaSpan>,
+}
+
+impl SourceMap {
+    pub fn span_at_line(&self, line: usize) -> Option<&ParaSpan> {
+        self.spans.iter().find(|s| line >= s.source_line_start && line < s.source_line_end)
+    }
+}
+
+pub struct SourceError {
+    pub line: usize,
+    pub message: String,
+}
+
 struct PdfWorld {
     library: LazyHash<typst::Library>,
     book: LazyHash<FontBook>,
@@ -96,7 +119,6 @@ fn load_fonts(font_paths: &[String]) -> (LazyHash<FontBook>, Vec<Font>) {
             continue;
         };
         let bytes = Bytes::new(data);
-        // TTC 文件可能包含多个变体，尝试加载所有索引
         for i in 0..8 {
             match Font::new(bytes.clone(), i) {
                 Some(font) => {
@@ -119,92 +141,89 @@ fn load_fonts(font_paths: &[String]) -> (LazyHash<FontBook>, Vec<Font>) {
     (LazyHash::new(book), fonts)
 }
 
-fn markdown_to_typst(md: &str) -> String {
-    let mut result = String::with_capacity(md.len());
-    let mut in_code_block = false;
+pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
+    let mut typ = String::new();
+    let mut spans = Vec::new();
 
-    for line in md.lines() {
-        if line.starts_with("```") {
-            in_code_block = !in_code_block;
-            result.push_str("```\n");
-            continue;
-        }
-
-        if in_code_block {
-            result.push_str(line);
-            result.push('\n');
-            continue;
-        }
-
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("# ") {
-            result.push_str("= ");
-            result.push_str(rest);
-        } else if let Some(rest) = trimmed.strip_prefix("## ") {
-            result.push_str("== ");
-            result.push_str(rest);
-        } else if let Some(rest) = trimmed.strip_prefix("### ") {
-            result.push_str("=== ");
-            result.push_str(rest);
-        } else if let Some(rest) = trimmed.strip_prefix("#### ") {
-            result.push_str("==== ");
-            result.push_str(rest);
-        } else {
-            result.push_str(&line.replace("**", "*"));
-        }
-        result.push('\n');
+    fn cur_line(s: &str) -> usize {
+        s.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1
     }
 
-    result
-}
+    // preamble
+    let preamble = format!(
+        "#set page(
+  margin: (x: 2.5cm, y: 2cm),
+  numbering: \"1\",
+)
 
-fn generate_typst_source(report: &ResearchReport) -> String {
-    let mut typ = String::new();
+#set text(font: \"Noto Sans CJK SC\", size: 11pt)
 
-    typ.push_str("#set page(\n");
-    typ.push_str("  margin: (x: 2.5cm, y: 2cm),\n");
-    typ.push_str("  numbering: \"1\",\n");
-    typ.push_str(")\n\n");
+#show heading.where(level: 1): it => [
+  #v(1cm)
+  #align(center, text(size: 18pt, weight: \"bold\", it.body))
+  #v(0.3cm)
+  #align(center, text(size: 9pt, fill: gray))[
+    生成于 {}
+  ]
+  #v(0.5cm)
+]
 
-    typ.push_str("#set text(font: \"Noto Sans CJK SC\", size: 11pt)\n\n");
-    typ.push_str("#show heading.where(level: 1): it => [\n");
-    typ.push_str("  #v(1cm)\n");
-    typ.push_str("  #align(center, text(size: 18pt, weight: \"bold\", it.body))\n");
-    typ.push_str("  #v(0.3cm)\n");
-    typ.push_str("  #align(center, text(size: 9pt, fill: gray))[\n");
-    typ.push_str(&format!(
-        "    生成于 {}\n",
-        report.generated_at.format("%Y-%m-%d %H:%M UTC")
-    ));
-    typ.push_str("  ]\n");
-    typ.push_str("  #v(0.5cm)\n");
-    typ.push_str("]\n\n");
+#show heading.where(level: 2): it => [
+  #v(0.5cm)
+  #text(size: 14pt, weight: \"bold\", it.body)
+  #v(0.2cm)
+]
 
-    typ.push_str("#show heading.where(level: 2): it => [\n");
-    typ.push_str("  #v(0.5cm)\n");
-    typ.push_str("  #text(size: 14pt, weight: \"bold\", it.body)\n");
-    typ.push_str("  #v(0.2cm)\n");
-    typ.push_str("]\n\n");
+#show heading.where(level: 3): it => [
+  #text(size: 12pt, weight: \"bold\", it.body)
+]
 
-    typ.push_str("#show heading.where(level: 3): it => [\n");
-    typ.push_str("  #text(size: 12pt, weight: \"bold\", it.body)\n");
-    typ.push_str("]\n\n");
+#set par(justify: true, leading: 0.65em)
 
-    typ.push_str("#set par(justify: true, leading: 0.65em)\n\n");
+= {}
+",
+        report.generated_at.format("%Y-%m-%d %H:%M UTC"),
+        report.title
+    );
 
-    typ.push_str("= ");
-    typ.push_str(&report.title);
-    typ.push_str("\n\n");
+    typ.push_str(&preamble);
 
-    for section in &report.sections {
+    // sections
+    for (si, section) in report.sections.iter().enumerate() {
         if section.content.is_empty() {
             continue;
         }
-        let converted = markdown_to_typst(&section.content);
-        typ.push_str(&converted);
-        typ.push('\n');
+
+        // section heading
+        typ.push_str(&format!("== {}\n", section.heading));
+
+        // split by blank lines → paragraphs
+        let mut content_offset = 0usize;
+        for para in section.content.split("\n\n") {
+            let para = para.trim();
+            if para.is_empty() {
+                content_offset += 2;
+                continue;
+            }
+
+            let para_start = cur_line(&typ);
+            typ.push_str(para);
+            typ.push_str("\n\n");
+            let para_end = cur_line(&typ);
+
+            spans.push(ParaSpan {
+                section_idx: si,
+                content_start: content_offset,
+                content_end: content_offset + para.len(),
+                source_line_start: para_start,
+                source_line_end: para_end,
+            });
+
+            content_offset += para.len() + 2;
+        }
     }
 
+    // citations
     let citations: Vec<&str> = report
         .citation_graph
         .sources
@@ -220,33 +239,32 @@ fn generate_typst_source(report: &ResearchReport) -> String {
         typ.push('\n');
     }
 
+    // quality score
     let q = &report.quality_score;
-    typ.push_str("---\n\n");
-    typ.push_str(&format!(
-        "质量评分：{}（覆盖率：{:.1}%，可靠性：{:.1}%，深度：{:.1}%）\n",
+    let footer = format!(
+        "---
+质量评分：{0}（覆盖率：{1:.1}%，可靠性：{2:.1}%，深度：{3:.1}%）
+",
         q.overall,
         q.coverage * 100.0,
         q.reliability * 100.0,
         q.depth * 100.0,
-    ));
+    );
+    typ.push_str(&footer);
 
-    typ
+    (typ, SourceMap { spans })
 }
 
-pub fn compile_report(
-    report: &ResearchReport,
-    output_path: &Path,
+pub fn compile_source_detailed(
+    source: &str,
     font_paths: &[String],
-) -> anyhow::Result<()> {
-    let (book, fonts) = load_fonts(font_paths);
-
+) -> std::result::Result<Vec<u8>, Vec<SourceError>> {
     let main_id = FileId::new(None, VirtualPath::new(Path::new("/main.typ")));
-    let typst_source = generate_typst_source(report);
-    let main_source = Source::new(main_id, typst_source);
-
+    let main_source = Source::new(main_id, source.to_string());
     let mut sources = HashMap::new();
     sources.insert(main_id, main_source.clone());
 
+    let (book, fonts) = load_fonts(font_paths);
     let world = PdfWorld {
         library: LazyHash::new(typst::Library::default()),
         book,
@@ -257,34 +275,43 @@ pub fn compile_report(
 
     let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);
 
-    let document = output.map_err(|diags| {
-        anyhow::anyhow!(
-            "Typst compilation failed: {}",
-            diags
-                .iter()
-                .map(|d| format!("{}", d.message))
-                .collect::<Vec<_>>()
-                .join("; ")
-        )
-    })?;
-
     for warning in &warnings {
         tracing::warn!("Typst: {}", warning.message);
     }
 
-    let pdf_options = typst_pdf::PdfOptions {
-        ident: typst::foundations::Smart::Auto,
-        timestamp: None,
-        page_ranges: None,
-        standards: typst_pdf::PdfStandards::default(),
-        tagged: false,
-    };
-
-    let pdf_bytes = typst_pdf::pdf(&document, &pdf_options)
-        .map_err(|e| anyhow::anyhow!("PDF export failed: {:?}", e))?;
-
-    std::fs::write(output_path, &pdf_bytes)?;
-    tracing::info!("PDF written to {}", output_path.display());
-
-    Ok(())
+    match output {
+        Ok(document) => {
+            let pdf_options = typst_pdf::PdfOptions {
+                ident: typst::foundations::Smart::Auto,
+                timestamp: None,
+                page_ranges: None,
+                standards: typst_pdf::PdfStandards::default(),
+                tagged: false,
+            };
+            let pdf_bytes = typst_pdf::pdf(&document, &pdf_options)
+                .map_err(|e| vec![SourceError { line: 0, message: format!("PDF export failed: {:?}", e) }])?;
+            Ok(pdf_bytes)
+        }
+        Err(diags) => {
+            let src = source.as_bytes();
+            let errors: Vec<SourceError> = diags
+                .iter()
+                .map(|d| {
+                    let line = world
+                        .main_source
+                        .range(d.span)
+                        .and_then(|r| {
+                            if r.start < src.len() {
+                                Some(src[..r.start].iter().filter(|&&c| c == b'\n').count() + 1)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(0);
+                    SourceError { line, message: d.message.to_string() }
+                })
+                .collect();
+            Err(errors)
+        }
+    }
 }

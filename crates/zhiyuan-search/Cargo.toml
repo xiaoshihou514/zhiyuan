@@ -5,15 +5,12 @@ edition = "2021"
 
 [dependencies]
 zhiyuan-core = { path = "../zhiyuan-core" }
-reqwest = { version = "0.12", features = ["json", "cookies"] }
-scraper = "0.22"
+reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 tracing = "0.1"
 thiserror = "2"
 chrono = "0.4"
 tokio = { version = "1", features = ["sync"] }
 futures = "0.3"
-urlencoding = "2"
-base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

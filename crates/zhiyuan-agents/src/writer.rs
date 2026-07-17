@@ -44,7 +44,7 @@ impl WriterAgent {
         let existing_content = existing_report
             .sections
             .iter()
-            .map(|s| format!("# {}\n{}", s.heading, s.content))
+            .map(|s| format!("= {}\n{}", s.heading, s.content))
             .collect::<Vec<_>>()
             .join("\n\n");
 
@@ -59,7 +59,14 @@ impl WriterAgent {
 
         let system = "你是一个研究报告写作专家。你的任务是基于已有的报告草稿和新的研究发现，
 更新和优化研究报告。保持结构一致性，将新信息融合到适当章节中。
-报告使用 Markdown 格式，包含内联引用。";
+报告使用 Typst 格式，包含内联引用。
+
+Typst 语法参考：
+= 一级标题  == 二级标题  === 三级标题
+*粗体*  _斜体_
+- 无序列表  + 有序列表
+`行内代码`  ```代码块```
+空行分段";
 
         let user = format!(
             "研究问题：{question}
@@ -109,7 +116,15 @@ impl WriterAgent {
         cross_check_review: &str,
         quality_score: &QualityScore,
     ) -> Result<ResearchReport> {
-        let system = "你是一个研究报告写作专家。根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。";
+        let system = "你是一个研究报告写作专家。根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。
+报告使用 Typst 格式。
+
+Typst 语法参考：
+= 一级标题  == 二级标题  === 三级标题
+*粗体*  _斜体_
+- 无序列表  + 有序列表
+`行内代码`  ```代码块```
+空行分段";
 
         let chapters_str: String = chapters
             .iter()
@@ -123,7 +138,7 @@ impl WriterAgent {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                format!("# {}\n{}\n\n研究发现：\n{}", ch.title, ch.description, findings_str)
+                    format!("= {}\n{}\n\n研究发现：\n{}", ch.title, ch.description, findings_str)
             })
             .collect::<Vec<_>>()
             .join("\n\n");
@@ -142,7 +157,7 @@ impl WriterAgent {
 
 质量评分：{quality}
 
-请生成完整的 Markdown 研究报告，包含：
+请生成完整的 Typst 研究报告，包含：
 1. 摘要
 2. 研究背景
 3. 各章节正文
@@ -197,7 +212,14 @@ impl WriterAgent {
             .join("\n\n");
 
         let system = "你是一个研究报告写作专家。你的任务是根据研究发现和引用信息，
-生成结构清晰、内容深入、有引用标注的研究报告。报告应该使用 Markdown 格式。";
+生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
+
+Typst 语法参考：
+= 一级标题  == 二级标题  === 三级标题
+*粗体*  _斜体_
+- 无序列表  + 有序列表
+`行内代码`  ```代码块```
+空行分段";
 
         let user = format!(
             "请根据以下研究发现，撰写一份结构化的研究报告。
@@ -209,7 +231,7 @@ impl WriterAgent {
 
 质量评分：{}
 
-请生成 Markdown 格式的报告，包含以下结构：
+请生成 Typst 格式的报告，包含以下结构：
 1. 摘要（概述主要发现）
 2. 研究背景
 3. 主要发现（分章节）

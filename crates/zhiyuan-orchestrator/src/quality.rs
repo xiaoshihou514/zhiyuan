@@ -1,28 +1,25 @@
-use zhiyuan_core::{KnowledgeBase, QualityScore};
+use zhiyuan_core::{CitationEdge, CitationGraph, KnowledgeBase, QualityScore, ResearchPlan};
 
 pub struct QualityEvaluator;
 
 impl QualityEvaluator {
-    pub fn evaluate(&self, knowledge: &KnowledgeBase, query: &str) -> QualityScore {
-        let coverage = self.calc_coverage(knowledge, query);
-        let reliability = self.calc_reliability(knowledge);
+    pub fn evaluate(
+        &self,
+        knowledge: &KnowledgeBase,
+        query: &str,
+        plan: &ResearchPlan,
+        citation_graph: &CitationGraph,
+    ) -> QualityScore {
+        let coverage = self.calc_coverage(knowledge, plan, query);
+        let reliability = self.calc_reliability(citation_graph, knowledge);
         let freshness = self.calc_freshness(knowledge);
         let depth = self.calc_depth(knowledge);
 
         QualityScore::new(coverage, reliability, freshness, depth)
     }
 
-    fn calc_coverage(&self, knowledge: &KnowledgeBase, query: &str) -> f64 {
-        let query_lower = query.to_lowercase();
-        let query_words: Vec<&str> = query_lower
-            .split_whitespace()
-            .filter(|w| w.len() > 3)
-            .collect();
-
-        if query_words.is_empty() {
-            return 0.5;
-        }
-
+    /// 子任务覆盖率：用关键词匹配 findings 覆盖了多少子任务
+    fn calc_coverage(&self, knowledge: &KnowledgeBase, plan: &ResearchPlan, query: &str) -> f64 {
         let all_content: String = knowledge
             .findings
             .iter()
@@ -30,60 +27,109 @@ impl QualityEvaluator {
             .collect::<Vec<_>>()
             .join(" ");
 
-        let covered = query_words
-            .iter()
-            .filter(|w| all_content.contains(*w))
-            .count();
-
-        covered as f64 / query_words.len() as f64
+        if !plan.sub_tasks.is_empty() {
+            let covered = plan
+                .sub_tasks
+                .iter()
+                .filter(|st| {
+                    let frags = extract_fragments(&st.description);
+                    frags.iter().any(|f| all_content.contains(f.as_str()))
+                })
+                .count();
+            covered as f64 / plan.sub_tasks.len() as f64
+        } else {
+            // 降级：查询关键词匹配
+            let frags = extract_fragments(query);
+            if frags.is_empty() {
+                return 0.5;
+            }
+            let covered = frags.iter().filter(|f| all_content.contains(f.as_str())).count();
+            covered as f64 / frags.len() as f64
+        }
     }
 
-    fn calc_reliability(&self, knowledge: &KnowledgeBase) -> f64 {
+    /// 可靠性：引用图多边率 + 多源率
+    fn calc_reliability(&self, citation_graph: &CitationGraph, knowledge: &KnowledgeBase) -> f64 {
         if knowledge.findings.is_empty() {
             return 0.0;
         }
 
-        let total_sources: usize = knowledge.findings.iter().map(|f| f.sources.len()).sum();
-        let findings_with_multiple_sources = knowledge
+        let multi_edge_ratio = if citation_graph.claims.is_empty() {
+            0.3
+        } else {
+            let multi = citation_graph
+                .claims
+                .iter()
+                .filter(|c| {
+                    citation_graph
+                        .edges
+                        .iter()
+                        .filter(|e| match e {
+                            CitationEdge::Supports { claim_id, .. } => *claim_id == c.id,
+                            CitationEdge::Contradicts { claim_id, .. } => *claim_id == c.id,
+                        })
+                        .count()
+                        >= 2
+                })
+                .count();
+            multi as f64 / citation_graph.claims.len() as f64
+        };
+
+        let multi_source_ratio = knowledge
             .findings
             .iter()
             .filter(|f| f.sources.len() >= 2)
-            .count();
+            .count() as f64
+            / knowledge.findings.len() as f64;
 
-        if knowledge.findings.is_empty() {
-            return 0.0;
-        }
-
-        let multi_source_ratio = findings_with_multiple_sources as f64 / knowledge.findings.len() as f64;
-        let source_avg = total_sources as f64 / knowledge.findings.len() as f64;
-
-        0.3 * multi_source_ratio + 0.7 * (source_avg / 5.0).min(1.0)
+        0.5 * multi_edge_ratio + 0.5 * multi_source_ratio
     }
 
+    /// 新鲜度：最新一轮迭代的发现占比
     fn calc_freshness(&self, knowledge: &KnowledgeBase) -> f64 {
         if knowledge.findings.is_empty() {
             return 0.0;
         }
+        if knowledge.findings.len() <= 1 {
+            return 0.5;
+        }
 
-        let avg_sources = knowledge.findings.iter().map(|f| f.sources.len() as f64).sum::<f64>()
-            / knowledge.findings.len() as f64;
-
-        (avg_sources / 3.0).min(1.0)
+        let max_iter = knowledge.findings.iter().map(|f| f.iteration).max().unwrap_or(1).max(1);
+        let threshold = if max_iter > 2 { max_iter - 1 } else { 0 };
+        let recent = knowledge.findings.iter().filter(|f| f.iteration >= threshold).count();
+        recent as f64 / knowledge.findings.len() as f64
     }
 
+    /// 深度：技术细节检测（数字、百分比、技术词汇）
     fn calc_depth(&self, knowledge: &KnowledgeBase) -> f64 {
         if knowledge.findings.is_empty() {
             return 0.0;
         }
 
-        let avg_length = knowledge
-            .findings
-            .iter()
-            .map(|f| f.content.len() as f64)
-            .sum::<f64>()
-            / knowledge.findings.len() as f64;
+        let tech_terms = [
+            "版本", "标准", "规范", "架构", "协议", "接口", "平台",
+            "API", "SDK", "协议", "框架", "引擎", "模块", "组件",
+            "配置", "部署", "集成", "测试", "认证",
+        ];
 
-        (avg_length / 500.0).min(1.0)
+        let mut total = 0.0f64;
+        for f in &knowledge.findings {
+            let mut s = 0.0f64;
+            if f.content.chars().any(|c| c.is_ascii_digit()) {
+                s += 0.3;
+            }
+            if f.content.contains('%') {
+                s += 0.2;
+            }
+            if f.content.len() > 200 {
+                s += 0.2;
+            }
+            if tech_terms.iter().any(|t| f.content.contains(t)) {
+                s += 0.3;
+            }
+            total += s.min(1.0);
+        }
+        (total / knowledge.findings.len() as f64).min(1.0)
     }
 }
 
@@ -91,4 +137,72 @@ impl Default for QualityEvaluator {
     fn default() -> Self {
         Self
     }
+}
+
+/// 从文本中提取匹配片段（复制自 extractor.rs 的逻辑，避免跨 crate 依赖）
+fn extract_fragments(context: &str) -> Vec<String> {
+    let mut frags = Vec::new();
+
+    let raw: Vec<String> = context
+        .split(|c: char| {
+            !c.is_alphanumeric()
+                && !(c as u32 >= 0x4E00 && c as u32 <= 0x9FFF)
+                && !(c as u32 >= 0x3400 && c as u32 <= 0x4DBF)
+        })
+        .filter(|s| s.len() >= 2)
+        .flat_map(|s| {
+            let mut parts = Vec::new();
+            let mut buf = String::new();
+            let mut is_cjk = false;
+            for c in s.chars() {
+                let cur_cjk = (c as u32 >= 0x4E00 && c as u32 <= 0x9FFF)
+                    || (c as u32 >= 0x3400 && c as u32 <= 0x4DBF);
+                if !buf.is_empty() && cur_cjk != is_cjk {
+                    parts.push(std::mem::take(&mut buf));
+                }
+                buf.push(c);
+                is_cjk = cur_cjk;
+            }
+            if !buf.is_empty() {
+                parts.push(buf);
+            }
+            parts
+        })
+        .filter(|s| s.len() >= 2)
+        .collect();
+
+    for word in &raw {
+        let lower = word.to_lowercase();
+        if !frags.contains(&lower) {
+            frags.push(lower);
+        }
+    }
+
+    for word in &raw {
+        let chars: Vec<char> = word.chars().collect();
+        let is_cjk = chars
+            .iter()
+            .any(|c| (*c as u32 >= 0x4E00 && *c as u32 <= 0x9FFF) || (*c as u32 >= 0x3400 && *c as u32 <= 0x4DBF));
+        if !is_cjk || chars.len() < 3 {
+            continue;
+        }
+        for w in chars.windows(2) {
+            let ngram: String = w.iter().collect();
+            let lower = ngram.to_lowercase();
+            if !frags.contains(&lower) {
+                frags.push(lower);
+            }
+        }
+        if chars.len() >= 3 {
+            for w in chars.windows(3) {
+                let ngram: String = w.iter().collect();
+                let lower = ngram.to_lowercase();
+                if !frags.contains(&lower) {
+                    frags.push(lower);
+                }
+            }
+        }
+    }
+
+    frags
 }

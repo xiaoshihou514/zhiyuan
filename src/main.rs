@@ -91,8 +91,6 @@ async fn main() -> anyhow::Result<()> {
     let base_dir = Path::new(&home).join(".local/share/zhiyuan");
     let session_dir = base_dir.join(format!("{:016x}", hash));
     std::fs::create_dir_all(&session_dir)?;
-    let searches_dir = session_dir.join("searches");
-    std::fs::create_dir_all(&searches_dir)?;
 
     let log_path = session_dir.join("session.log");
     let log_file = std::fs::File::create(&log_path)
@@ -128,18 +126,33 @@ async fn main() -> anyhow::Result<()> {
     config.research.concurrency = cli.concurrency;
     if cli.long {
         config.research.cross_validate = true;
+    } else {
+        config.search.max_results = 5;
+        config.research.max_iterations = 2;
     }
 
-    let engine_pool = Arc::new(EnginePool::from_config(&config.search, Some(searches_dir)));
+    let engine_pool = Arc::new(EnginePool::from_config(&config.search));
 
     if config.llm.api_key.is_empty() {
         tracing::warn!("LLM API 密钥为空，将不发送 Authorization 请求头");
     }
+    // 转发 LLM 词元计数到 TUI
+    let (token_tx, mut token_rx) = tokio::sync::mpsc::unbounded_channel::<(usize, usize)>();
+    {
+        let tx = event_tx.clone();
+        tokio::spawn(async move {
+            while let Some((p, c)) = token_rx.recv().await {
+                let _ = tx.send(TuiEvent::TokenUsage(p, c));
+            }
+        });
+    }
+
     let llm: Box<dyn LlmClient> = Box::new(OpenaiLlm::new(
         config.llm.api_key.clone(),
         config.llm.base_url.clone(),
         config.llm.main_model.clone(),
         Some(llm_log.to_string_lossy().to_string()),
+        Some(token_tx),
     ));
 
     if cli.clarify {
@@ -172,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
         let engine_pool = engine_pool.clone();
         let config_research = config.research.clone();
         let data_dir = data_dir.clone();
+        let blocked_domains = config.search.blocked_domains.clone();
 
         tokio::spawn(async move {
             let (query, plan) = match research_trigger_rx.await {
@@ -185,6 +199,7 @@ async fn main() -> anyhow::Result<()> {
                 config_research,
                 Some(data_dir),
                 Some(Box::new(reporter)),
+                blocked_domains,
             )
             .await;
             match orchestrator.research(query, plan).await {
@@ -250,8 +265,8 @@ async fn main() -> anyhow::Result<()> {
     if let Some(component) = app.get_component_mut(&Id::App) {
         let any = component.as_any_mut();
         if let Some(comp) = any.downcast_mut::<App>() {
-            if let Some(report) = comp.report() {
-            let font_paths = vec![config.pdf.font.clone()];
+            if let Some(report) = comp.report().cloned() {
+                let font_paths = vec![config.pdf.font.clone()];
                 let pdf_filename = report
                     .title
                     .chars()
@@ -269,16 +284,100 @@ async fn main() -> anyhow::Result<()> {
                     .trim_end_matches('_')
                     .to_string()
                     + ".pdf";
-                if let Err(e) = pdf::compile_report(report, std::path::Path::new(&pdf_filename), &font_paths) {
-                    tracing::warn!("PDF 生成失败: {e}");
-                } else {
-                    println!("PDF: {}", pdf_filename);
+                let pdf_path = std::path::Path::new(&pdf_filename);
+                let typ_path = session_dir.join("report.typ");
+
+                let mut report = report;
+                loop {
+                    let (source, source_map) = pdf::generate_typst_source(&report);
+                    let _ = std::fs::write(&typ_path, &source);
+
+                    match pdf::compile_source_detailed(&source, &font_paths) {
+                        Ok(pdf_bytes) => {
+                            if let Err(e) = std::fs::write(pdf_path, &pdf_bytes) {
+                                eprintln!("❌ PDF 写入失败: {e}");
+                            } else {
+                                println!("✅ PDF: {}", pdf_filename);
+                            }
+                            break;
+                        }
+                        Err(errs) => {
+                            eprintln!("⚠️ Typst 编译失败，正在尝试修复...");
+                            let fixed = tokio::runtime::Handle::current().block_on(async {
+                                fix_typst_errors(&*llm, &errs, &source_map, &mut report).await
+                            });
+                            if !fixed {
+                                eprintln!("❌ 无法自动修复:");
+                                for e in &errs {
+                                    eprintln!("  行 {}: {}", e.line, e.message);
+                                }
+                                eprintln!("Typst 源码已保存到 {typ_path:?}，请手动修正");
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     Ok(())
+}
+
+async fn fix_typst_errors(
+    llm: &dyn zhiyuan_core::LlmClient,
+    errors: &[pdf::SourceError],
+    source_map: &pdf::SourceMap,
+    report: &mut zhiyuan_core::ResearchReport,
+) -> bool {
+    let mut fixed_any = false;
+    for err in errors {
+        if err.line == 0 {
+            continue;
+        }
+        let Some(span) = source_map.span_at_line(err.line) else {
+            eprintln!("  ⚠️ 无法定位错误行 {} 对应的段落", err.line);
+            continue;
+        };
+        if span.section_idx >= report.sections.len() {
+            continue;
+        }
+        let section = &mut report.sections[span.section_idx];
+        if span.content_end > section.content.len() {
+            continue;
+        }
+        let para = &section.content[span.content_start..span.content_end];
+        if para.is_empty() {
+            continue;
+        }
+
+        let system = "你是一个 Typst 修复专家。以下段落编译报错，请修复语法问题。
+只输出修复后的段落原文，不要 ``` 围栏或多余文字。";
+        let user = format!(
+            "错误：{}（行 {}）\n\n段落原文：\n{}",
+            err.message, err.line, para
+        );
+
+        match llm.prompt(system, &user).await {
+            Ok(fixed) => {
+                let fixed = fixed.trim();
+                if fixed.is_empty() || fixed == para.trim() {
+                    continue;
+                }
+                section.content = format!(
+                    "{}{}{}",
+                    &section.content[..span.content_start],
+                    fixed,
+                    &section.content[span.content_end..]
+                );
+                fixed_any = true;
+            }
+            Err(e) => {
+                eprintln!("  ⚠️ LLM 修复段落失败: {e}");
+            }
+        }
+    }
+    fixed_any
 }
 
 fn load_config() -> anyhow::Result<ResearchConfig> {

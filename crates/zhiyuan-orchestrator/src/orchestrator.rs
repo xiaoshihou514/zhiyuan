@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use futures::future::join_all;
 use tokio::sync::Semaphore;
 use zhiyuan_agents::*;
@@ -37,6 +38,7 @@ impl ResearchOrchestrator {
         config: ResearchSettings,
         memory_path: Option<String>,
         progress: Option<Box<dyn ProgressReporter>>,
+        blocked_domains: Vec<String>,
     ) -> Self {
         let extractor = Arc::new(WebExtractor::new());
         let memory = memory_path.and_then(|p| MemoryManager::open(p).ok());
@@ -45,7 +47,7 @@ impl ResearchOrchestrator {
             memory,
             planner: PlannerAgent::new(llm.clone_box()),
             searcher: SearcherAgent::new(llm.clone_box(), engine_pool),
-            extractor_agent: ExtractorAgent::new(extractor),
+            extractor_agent: ExtractorAgent::new(extractor, blocked_domains),
             synthesizer: SynthesizerAgent::new(llm.clone_box()),
             writer: WriterAgent::new(llm.clone_box()),
             verifier: VerifierAgent::new(llm.clone_box()),
@@ -71,7 +73,22 @@ impl ResearchOrchestrator {
 
         let plan = match pregenerated_plan {
             Some(p) => p,
-            None => self.planner.create_plan(&query, &self.config).await?,
+            None => match self.planner.create_plan(&query, &self.config).await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!("计划生成失败: {e}，降级为单任务计划");
+                    ResearchPlan {
+                        query_id: query.id,
+                        sub_tasks: vec![SubTask {
+                            id: Uuid::new_v4(),
+                            description: query.full_query(),
+                            status: TaskStatus::Pending,
+                            dependencies: vec![],
+                        }],
+                        outline: None,
+                    }
+                }
+            },
         };
         tracing::info!("任务" = %plan.sub_tasks.len(), "研究计划已生成");
         self.save_to_memory("plan", &serde_json::to_string(&plan).unwrap_or_default());
@@ -105,8 +122,11 @@ impl ResearchOrchestrator {
         };
 
         let semaphore = Arc::new(Semaphore::new(self.config.concurrency.max(1)));
+        let seen_urls = Arc::new(Mutex::new(HashSet::new()));
 
         let mut empty_rounds = 0;
+        let mut prev_quality = 0.0f64;
+        let mut quality_stagnant_rounds = 0u32;
 
         for iteration in 1..=self.config.max_iterations {
             tracing::info!("轮次" = iteration, "发现数" = %state.findings.len(), "开始新一轮迭代");
@@ -121,24 +141,24 @@ impl ResearchOrchestrator {
             }
 
             let new_findings = self
-                .execute_tasks_concurrently(&tasks, iteration, &semaphore)
+                .execute_tasks_concurrently(&tasks, iteration, &semaphore, &seen_urls, &state.findings)
                 .await;
-            let prev_count = state.findings.len();
-            state.findings.extend(new_findings);
-            let new_count = state.findings.len();
 
-            if new_count == prev_count {
+            // 合并相似发现
+            let novel_count = self.merge_findings(&mut state.findings, &new_findings);
+
+            if state.findings.is_empty() {
+                tracing::warn!("迭代后无发现，停止");
+                break;
+            }
+
+            if novel_count < 1 {
                 empty_rounds += 1;
             } else {
                 empty_rounds = 0;
             }
-            if empty_rounds >= 3 {
-                tracing::warn!("连续 3 轮未产生新发现，提前终止研究");
-                break;
-            }
-
-            if state.findings.is_empty() {
-                tracing::warn!("迭代后无发现，停止");
+            if empty_rounds >= 2 {
+                tracing::warn!("连续 2 轮无显著新发现，提前终止研究");
                 break;
             }
 
@@ -148,7 +168,9 @@ impl ResearchOrchestrator {
                 query_id: query.id,
                 findings: state.findings.clone(),
             };
-            let quality = self.quality_evaluator.evaluate(&knowledge, &query.full_query());
+            let quality = self
+                .quality_evaluator
+                .evaluate(&knowledge, &query.full_query(), &plan, &state.citation_graph);
             tracing::info!(
                 "总分" = %quality.overall,
                 "覆盖" = %quality.coverage,
@@ -165,10 +187,25 @@ impl ResearchOrchestrator {
                 sources_count: state.citation_graph.sources.len(),
             });
 
+            // 质量停滞检测
+            if iteration > 1 {
+                let delta = quality.overall - prev_quality;
+                if delta < 0.01 {
+                    quality_stagnant_rounds += 1;
+                } else {
+                    quality_stagnant_rounds = 0;
+                }
+            }
+            prev_quality = quality.overall;
+            if quality_stagnant_rounds >= 2 {
+                tracing::warn!("连续 2 轮质量无提升，提前终止研究");
+                break;
+            }
+
             if quality.overall < self.config.quality_threshold {
                 state.pending_directions = self
                     .synthesizer
-                    .extract_directions(&query.query, &state.findings)
+                    .extract_directions(&query.query, &state.findings, Some(&plan.sub_tasks))
                     .await
                     .unwrap_or_default();
                 if !state.pending_directions.is_empty() {
@@ -204,6 +241,8 @@ impl ResearchOrchestrator {
                 findings: state.findings.clone(),
             },
             &query.full_query(),
+            &plan,
+            &state.citation_graph,
         );
         tracing::info!(
             "总分" = %quality.overall,
@@ -276,6 +315,8 @@ impl ResearchOrchestrator {
         tasks: &[String],
         iteration: usize,
         semaphore: &Semaphore,
+        seen_urls: &Mutex<HashSet<String>>,
+        existing_findings: &[Finding],
     ) -> Vec<Finding> {
         let mut all_findings = Vec::new();
         let mut chunks: Vec<Vec<&String>> = Vec::new();
@@ -296,7 +337,7 @@ impl ResearchOrchestrator {
             let futures: Vec<_> = chunk
                 .iter()
                 .map(|task_desc| {
-                    self.process_single_task(task_desc, iteration)
+                    self.process_single_task(task_desc, iteration, seen_urls, existing_findings)
                 })
                 .collect();
 
@@ -313,7 +354,13 @@ impl ResearchOrchestrator {
         all_findings
     }
 
-    async fn process_single_task(&self, task_desc: &str, iteration: usize) -> Result<Vec<Finding>> {
+    async fn process_single_task(
+        &self,
+        task_desc: &str,
+        iteration: usize,
+        seen_urls: &Mutex<HashSet<String>>,
+        existing_findings: &[Finding],
+    ) -> Result<Vec<Finding>> {
         let context = String::new();
 
         let queries = self
@@ -329,10 +376,21 @@ impl ResearchOrchestrator {
             .execute_search(&queries, 5, self.config.concurrency, self.config.cross_validate)
             .await?;
 
+        let search_results = {
+            let mut seen = seen_urls.lock().unwrap();
+            search_results
+                .into_iter()
+                .filter(|r| seen.insert(r.url.clone()))
+                .collect::<Vec<_>>()
+        };
+        if search_results.is_empty() {
+            return Ok(vec![]);
+        }
+
         let extracted = self.extractor_agent.extract_content(&search_results, task_desc).await?;
         let findings = self
             .synthesizer
-            .synthesize(&extracted, Uuid::new_v4(), iteration)
+            .synthesize(&extracted, Uuid::new_v4(), iteration, existing_findings)
             .await?;
 
         let findings = if self.config.cross_validate {
@@ -447,6 +505,37 @@ impl ResearchOrchestrator {
         }
 
         Ok(verified)
+    }
+
+    /// 字符 trigram Jaccard 相似度
+    fn text_similarity(a: &str, b: &str) -> f64 {
+        let trigrams_a: std::collections::HashSet<String> =
+            a.chars().collect::<Vec<_>>().windows(3).map(|w| w.iter().collect()).collect();
+        let trigrams_b: std::collections::HashSet<String> =
+            b.chars().collect::<Vec<_>>().windows(3).map(|w| w.iter().collect()).collect();
+        let intersection = trigrams_a.intersection(&trigrams_b).count();
+        let union = trigrams_a.union(&trigrams_b).count();
+        if union == 0 { 0.0 } else { intersection as f64 / union as f64 }
+    }
+
+    /// 合并相似发现，返回本轮新增的新颖发现数
+    fn merge_findings(&self, existing: &mut Vec<Finding>, new_findings: &[Finding]) -> usize {
+        let mut novel = 0usize;
+        for nf in new_findings {
+            let is_duplicate = existing
+                .iter()
+                .any(|ef| Self::text_similarity(&nf.content, &ef.content) > 0.7);
+            if is_duplicate {
+                tracing::debug!("合并重复发现: {}", nf.content.chars().take(80).collect::<String>());
+            } else {
+                novel += 1;
+                existing.push(nf.clone());
+            }
+        }
+        if novel < new_findings.len() {
+            tracing::info!("{} 个新发现中 {} 个与已有发现重复", new_findings.len(), new_findings.len() - novel);
+        }
+        novel
     }
 
     async fn build_or_update_report(

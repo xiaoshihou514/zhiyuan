@@ -234,6 +234,8 @@ pub struct SearchConfig {
     pub max_results: usize,
     #[serde(default = "default_searxng_url")]
     pub searxng_url: String,
+    #[serde(default)]
+    pub blocked_domains: Vec<String>,
 }
 
 fn default_searxng_url() -> String {
@@ -261,7 +263,7 @@ pub struct ResearchSettings {
     pub cross_validate: bool,
 }
 
-fn default_max_iterations() -> usize { 10 }
+fn default_max_iterations() -> usize { 4 }
 fn default_quality_threshold() -> f64 { 0.7 }
 fn default_concurrency() -> usize { 4 }
 
