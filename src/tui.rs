@@ -586,6 +586,7 @@ impl Component for App {
                         Line::from(vec![
                             Span::styled("多样  ", GRAY),
                             Span::styled(format!("{:>5.0}%", q.freshness * 100.0), WARM),
+                        ]),
                         bar(q.freshness, 20, STEEL),
                         Line::from(vec![
                             Span::styled("总评分", GRAY),

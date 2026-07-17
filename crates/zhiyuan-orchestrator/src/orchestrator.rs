@@ -457,7 +457,22 @@ impl ResearchOrchestrator {
         }
 
         let mut verified = Vec::new();
+        let mut llm_calls = 0usize;
         for finding in findings {
+            let is_single_source = finding.sources.len() <= 1;
+            let max_sim = verified
+                .iter()
+                .map(|v: &Finding| Self::text_similarity(&finding.content, &v.content))
+                .fold(0.0, f64::max);
+
+            let needs_llm = is_single_source || max_sim < 0.5;
+
+            if !needs_llm {
+                verified.push(finding.clone());
+                continue;
+            }
+
+            llm_calls += 1;
             let system = "\
 你是一个事实核查专家。判断以下研究发现是否准确可靠。
 
@@ -500,8 +515,13 @@ impl ResearchOrchestrator {
         }
 
         let removed = findings.len() - verified.len();
-        if removed > 0 {
-            tracing::info!("交叉验证: {}/{} 个发现被过滤", removed, findings.len());
+        if removed > 0 || llm_calls < findings.len() {
+            tracing::info!(
+                "交叉验证: {}/{} 个发现需 LLM 验证，{} 个被过滤",
+                llm_calls,
+                findings.len(),
+                removed,
+            );
         }
 
         Ok(verified)
