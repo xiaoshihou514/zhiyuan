@@ -373,6 +373,11 @@ impl ResearchOrchestrator {
             return Ok(vec![]);
         }
 
+        self.report(ProgressUpdate::TaskPhase {
+            task_desc: task_desc.to_string(),
+            phase: "搜索中".into(),
+        });
+
         let search_results = self
             .searcher
             .execute_search(&queries, 5, self.config.concurrency, self.config.cross_validate)
@@ -389,7 +394,18 @@ impl ResearchOrchestrator {
             return Ok(vec![]);
         }
 
+        self.report(ProgressUpdate::TaskPhase {
+            task_desc: task_desc.to_string(),
+            phase: "提取中".into(),
+        });
+
         let extracted = self.extractor_agent.extract_content(&search_results, task_desc).await?;
+
+        self.report(ProgressUpdate::TaskPhase {
+            task_desc: task_desc.to_string(),
+            phase: "综合中".into(),
+        });
+
         let findings = self
             .synthesizer
             .synthesize(&extracted, Uuid::new_v4(), iteration, existing_findings)
@@ -400,6 +416,11 @@ impl ResearchOrchestrator {
         } else {
             findings
         };
+
+        self.report(ProgressUpdate::TaskPhase {
+            task_desc: task_desc.to_string(),
+            phase: "完成".into(),
+        });
 
         for f in &findings {
             if let Some(ref memory) = self.memory {

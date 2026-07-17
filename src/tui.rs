@@ -1,3 +1,4 @@
+use std::time::Instant;
 use tuirealm::{
     command::{Cmd, CmdResult},
     component::{AppComponent, Component},
@@ -18,6 +19,7 @@ use zhiyuan_core::{
 
 #[derive(Debug, Clone, Default)]
 struct TaskStat {
+    phase: String,
     pages_total: usize,
     pages_ok: usize,
     pages_fail: usize,
@@ -77,6 +79,7 @@ enum Phase {
         input: InputBuf,
     },
     Researching {
+        start_time: Instant,
         iteration: usize,
         max_iterations: usize,
         quality: Option<QualityScore>,
@@ -172,8 +175,12 @@ impl App {
     }
 
     fn start_researching(&mut self, tasks: Vec<String>) {
-        let stats = vec![TaskStat::default(); tasks.len().max(1)];
+        let stats = tasks.iter().map(|_| TaskStat {
+            phase: "待处理".into(),
+            ..Default::default()
+        }).collect();
         self.phase = Phase::Researching {
+            start_time: Instant::now(),
             iteration: 0,
             max_iterations: 4,
             quality: None,
@@ -262,6 +269,20 @@ impl App {
             }
             ProgressUpdate::Report(report) => {
                 self.phase = Phase::Complete { report };
+            }
+            ProgressUpdate::TaskPhase { task_desc, phase } => {
+                if let Phase::Researching {
+                    ref mut task_stats,
+                    ref tasks,
+                    ..
+                } = self.phase
+                {
+                    if let Some(idx) = tasks.iter().position(|t| t == &task_desc) {
+                        if idx < task_stats.len() {
+                            task_stats[idx].phase = phase;
+                        }
+                    }
+                }
             }
             ProgressUpdate::Error(e) => {
                 self.phase = Phase::Error(e);
@@ -466,6 +487,7 @@ impl Component for App {
                 pages_fail,
                 tokens_in,
                 tokens_out,
+                start_time,
                 pages_total: _,
             } => {
                 let spinner = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"][*spinner_frame % 8];
@@ -486,8 +508,16 @@ impl Component for App {
                     ])
                     .split(inner);
 
+                let elapsed_secs = start_time.elapsed().as_secs();
+                let elapsed_str = if elapsed_secs >= 3600 {
+                    format!("{}h{:02}m", elapsed_secs / 3600, (elapsed_secs % 3600) / 60)
+                } else if elapsed_secs >= 60 {
+                    format!("{}m{:02}s", elapsed_secs / 60, elapsed_secs % 60)
+                } else {
+                    format!("{}s", elapsed_secs)
+                };
                 frame.render_widget(
-                    Paragraph::new(format!("{}  {}", spinner, self.query_text)).fg(GOLD),
+                    Paragraph::new(format!("{}  {}  {}", spinner, self.query_text, elapsed_str)).fg(GOLD),
                     chunks[0],
                 );
 
@@ -519,33 +549,42 @@ impl Component for App {
                         } else {
                             ("○", Style::new().fg(GRAY))
                         };
-                        let label: String = t.chars().take(22).collect();
+                        let label: String = t.chars().take(20).collect();
                         let mut lines = vec![Line::from(Span::styled(
                             format!(" {}  {}", icon, label),
                             style,
                         ))];
                         if i < task_stats.len() {
                             let s = &task_stats[i];
-                            if s.pages_total > 0 || s.tokens_out > 0 {
-                                let ratio = if s.pages_total > 0 {
-                                    s.pages_ok as f64 / s.pages_total as f64
-                                } else {
-                                    0.0
-                                };
-                                let bar_len = (ratio * 6.0).round() as usize;
-                                lines.push(Line::from(vec![
-                                    Span::raw("  "),
-                                    Span::styled(
-                                        format!("{}{}", "▊".repeat(bar_len), "·".repeat(6usize.saturating_sub(bar_len))),
-                                        TEAL,
-                                    ),
-                                    Span::raw("    "),
-                                    Span::styled(format!("{}", s.pages_ok), TEAL),
-                                    Span::styled(format!("/{}", s.pages_total), GRAY),
-                                    Span::raw("  "),
-                                    Span::styled(format!("✗{}", s.pages_fail), if s.pages_fail > 0 { RED } else { GRAY }),
-                                ]));
-                            }
+                            let ratio = if s.pages_total > 0 {
+                                s.pages_ok as f64 / s.pages_total as f64
+                            } else {
+                                0.0
+                            };
+                            let bar_len = (ratio * 6.0).round() as usize;
+                            lines.push(Line::from(vec![
+                                Span::raw("    "),
+                                Span::styled(
+                                    format!("{}{}", "▊".repeat(bar_len), "·".repeat(6usize.saturating_sub(bar_len))),
+                                    TEAL,
+                                ),
+                                Span::raw("  "),
+                                Span::styled(format!("{}", s.pages_ok), TEAL),
+                                Span::styled(format!("/{}", s.pages_total), GRAY),
+                                Span::raw("  "),
+                                Span::styled(format!("✗{}", s.pages_fail), if s.pages_fail > 0 { RED } else { GRAY }),
+                            ]));
+                            let phase_color = match s.phase.as_str() {
+                                "搜索中" | "提取中" | "综合中" => GOLD,
+                                "完成" => TEAL,
+                                _ => GRAY,
+                            };
+                            lines.push(Line::from(vec![
+                                Span::raw("    "),
+                                Span::styled(&s.phase, phase_color),
+                                Span::raw("  "),
+                                Span::styled(format!("{:>3.0}%", ratio * 100.0), GRAY),
+                            ]));
                         }
                         lines
                     })

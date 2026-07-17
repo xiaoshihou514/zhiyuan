@@ -203,6 +203,10 @@ pub enum ProgressUpdate {
         findings_count: usize,
         sources_count: usize,
     },
+    TaskPhase {
+        task_desc: String,
+        phase: String,
+    },
     Report(ResearchReport),
     Error(String),
 }
