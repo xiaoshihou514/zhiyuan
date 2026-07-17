@@ -556,8 +556,8 @@ impl Component for App {
                         ))];
                         if i < task_stats.len() {
                             let s = &task_stats[i];
-                            let ratio = if s.pages_total > 0 {
-                                s.pages_ok as f64 / s.pages_total as f64
+                            let ratio = if s.pages_ok + s.pages_fail > 0 {
+                                s.pages_ok as f64 / (s.pages_ok + s.pages_fail) as f64
                             } else {
                                 0.0
                             };
@@ -570,7 +570,7 @@ impl Component for App {
                                 ),
                                 Span::raw("  "),
                                 Span::styled(format!("{}", s.pages_ok), TEAL),
-                                Span::styled(format!("/{}", s.pages_total), GRAY),
+                                Span::styled(format!("/{}", s.pages_ok + s.pages_fail), GRAY),
                                 Span::raw("  "),
                                 Span::styled(format!("✗{}", s.pages_fail), if s.pages_fail > 0 { RED } else { GRAY }),
                             ]));
