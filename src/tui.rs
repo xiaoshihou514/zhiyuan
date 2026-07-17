@@ -539,7 +539,7 @@ impl Component for App {
                                         format!("{}{}", "▊".repeat(bar_len), "·".repeat(6usize.saturating_sub(bar_len))),
                                         TEAL,
                                     ),
-                                    Span::raw(" "),
+                                    Span::raw("    "),
                                     Span::styled(format!("{}", s.pages_ok), TEAL),
                                     Span::styled(format!("/{}", s.pages_total), GRAY),
                                     Span::raw("  "),
