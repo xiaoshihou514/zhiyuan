@@ -2,7 +2,7 @@ use std::time::Instant;
 use tuirealm::{
     command::{Cmd, CmdResult},
     component::{AppComponent, Component},
-    event::{Event, Key, MouseEventKind, NoUserEvent},
+    event::{Event, Key, KeyModifiers, MouseEventKind, NoUserEvent},
     props::{AttrValue, Attribute, QueryResult},
     ratatui::{
         Frame,
@@ -63,23 +63,47 @@ pub enum Id {
 
 struct InputBuf {
     text: String,
+    cursor: usize,
 }
 
 impl InputBuf {
     fn new() -> Self {
-        Self { text: String::new() }
+        Self { text: String::new(), cursor: 0 }
     }
     fn push(&mut self, c: char) {
-        self.text.push(c);
+        self.text.insert(self.cursor, c);
+        self.cursor += c.len_utf8();
     }
     fn pop(&mut self) {
-        self.text.pop();
+        if self.cursor > 0 {
+            let prev = self.text[..self.cursor].chars().next_back().unwrap();
+            self.text.remove(self.cursor - prev.len_utf8());
+            self.cursor -= prev.len_utf8();
+        }
     }
     fn clear(&mut self) {
         self.text.clear();
+        self.cursor = 0;
     }
     fn value(&self) -> &str {
         &self.text
+    }
+    fn cursor_left(&mut self) {
+        if self.cursor > 0 {
+            let prev = self.text[..self.cursor].chars().next_back().unwrap();
+            self.cursor -= prev.len_utf8();
+        }
+    }
+    fn cursor_right(&mut self) {
+        if self.cursor < self.text.len() {
+            let next = self.text[self.cursor..].chars().next().unwrap();
+            self.cursor += next.len_utf8();
+        }
+    }
+    fn cursor_home(&mut self) { self.cursor = 0; }
+    fn cursor_end(&mut self) { self.cursor = self.text.len(); }
+    fn cursor_char_idx(&self) -> usize {
+        self.text[..self.cursor].chars().count()
     }
 }
 
@@ -527,7 +551,10 @@ impl Component for App {
                 let input_text = if input.value().is_empty() {
                     "\n  输入评论或修改建议，然后 Enter 执行  ".to_string()
                 } else {
-                    format!("\n  {}\u{258c}  ", input.value())
+                    let cpos = input.cursor_char_idx();
+                    let before: String = input.value().chars().take(cpos).collect();
+                    let after: String = input.value().chars().skip(cpos).collect();
+                    format!("\n  {}\u{258c}{}  ", before, after)
                 };
                 frame.render_widget(
                     Paragraph::new(input_text)
@@ -867,6 +894,38 @@ impl AppComponent<Msg, NoUserEvent> for App {
                 Key::Backspace => {
                     if let Phase::PlanReview { ref mut input, .. } = self.phase {
                         input.pop();
+                    }
+                    None
+                }
+                Key::Left => {
+                    if let Phase::PlanReview { ref mut input, .. } = self.phase {
+                        input.cursor_left();
+                    }
+                    None
+                }
+                Key::Right => {
+                    if let Phase::PlanReview { ref mut input, .. } = self.phase {
+                        input.cursor_right();
+                    }
+                    None
+                }
+                Key::Home | Key::CtrlHome => {
+                    if let Phase::PlanReview { ref mut input, .. } = self.phase {
+                        input.cursor_home();
+                    }
+                    None
+                }
+                Key::End | Key::CtrlEnd => {
+                    if let Phase::PlanReview { ref mut input, .. } = self.phase {
+                        input.cursor_end();
+                    }
+                    None
+                }
+                Key::Char(c) if k.modifiers == KeyModifiers::CONTROL => {
+                    match c {
+                        'a' | 'A' => if let Phase::PlanReview { ref mut input, .. } = self.phase { input.cursor_home(); },
+                        'e' | 'E' => if let Phase::PlanReview { ref mut input, .. } = self.phase { input.cursor_end(); },
+                        _ => {}
                     }
                     None
                 }
