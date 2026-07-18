@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use futures::future::join_all;
 use tokio::sync::Semaphore;
@@ -15,6 +15,7 @@ struct IterationState {
     citation_graph: CitationGraph,
     report: Option<ResearchReport>,
     pending_directions: Vec<ResearchDirection>,
+    source_titles: HashMap<String, String>,
 }
 
 pub struct ResearchOrchestrator {
@@ -119,6 +120,7 @@ impl ResearchOrchestrator {
             },
             report: None,
             pending_directions: vec![],
+            source_titles: HashMap::new(),
         };
 
         let semaphore = Arc::new(Semaphore::new(self.config.concurrency.max(1)));
@@ -140,9 +142,10 @@ impl ResearchOrchestrator {
                 tracing::info!("没有待处理任务，结束迭代");
             }
 
-            let new_findings = self
+            let (new_findings, new_titles) = self
                 .execute_tasks_concurrently(&tasks, iteration, &semaphore, &seen_urls, &state.findings)
                 .await;
+            state.source_titles.extend(new_titles);
 
             // 合并相似发现
             let novel_count = self.merge_findings(&mut state.findings, &new_findings);
@@ -319,8 +322,9 @@ impl ResearchOrchestrator {
         semaphore: &Semaphore,
         seen_urls: &Mutex<HashSet<String>>,
         existing_findings: &[Finding],
-    ) -> Vec<Finding> {
+    ) -> (Vec<Finding>, HashMap<String, String>) {
         let mut all_findings = Vec::new();
+        let mut all_titles: HashMap<String, String> = HashMap::new();
         let mut chunks: Vec<Vec<&String>> = Vec::new();
         let mut current_chunk = Vec::new();
 
@@ -346,14 +350,17 @@ impl ResearchOrchestrator {
             let results = join_all(futures).await;
             for result in results {
                 match result {
-                    Ok(findings) => all_findings.extend(findings),
+                    Ok((findings, titles)) => {
+                        all_findings.extend(findings);
+                        all_titles.extend(titles);
+                    }
                     Err(e) => tracing::warn!("任务失败: {e}"),
                 }
             }
             drop(_permit);
         }
 
-        all_findings
+        (all_findings, all_titles)
     }
 
     async fn process_single_task(
@@ -362,7 +369,7 @@ impl ResearchOrchestrator {
         iteration: usize,
         seen_urls: &Mutex<HashSet<String>>,
         existing_findings: &[Finding],
-    ) -> Result<Vec<Finding>> {
+    ) -> Result<(Vec<Finding>, HashMap<String, String>)> {
         let context = String::new();
 
         let queries = self
@@ -370,7 +377,7 @@ impl ResearchOrchestrator {
             .generate_queries(task_desc, &context)
             .await?;
         if queries.is_empty() {
-            return Ok(vec![]);
+            return Ok((vec![], HashMap::new()));
         }
 
         self.report(ProgressUpdate::TaskPhase {
@@ -391,7 +398,7 @@ impl ResearchOrchestrator {
                 .collect::<Vec<_>>()
         };
         if search_results.is_empty() {
-            return Ok(vec![]);
+            return Ok((vec![], HashMap::new()));
         }
 
         self.report(ProgressUpdate::TaskPhase {
@@ -400,6 +407,11 @@ impl ResearchOrchestrator {
         });
 
         let extracted = self.extractor_agent.extract_content(&search_results, task_desc).await?;
+
+        let source_titles: HashMap<String, String> = extracted
+            .iter()
+            .map(|c| (c.url.clone(), c.title.clone()))
+            .collect();
 
         self.report(ProgressUpdate::TaskPhase {
             task_desc: task_desc.to_string(),
@@ -428,7 +440,7 @@ impl ResearchOrchestrator {
             }
         }
 
-        Ok(findings)
+        Ok((findings, source_titles))
     }
 
     async fn verify_findings(&self, state: &mut IterationState) {
@@ -453,7 +465,7 @@ impl ResearchOrchestrator {
                 f.sources.iter().map(|url| SourceNode {
                     id: Uuid::new_v4(),
                     url: url.clone(),
-                    title: url.clone(),
+                    title: state.source_titles.get(url).cloned().unwrap_or_else(|| url.clone()),
                     reliability: 0.5,
                 })
             })
