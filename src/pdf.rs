@@ -194,8 +194,15 @@ pub fn bib_key(url: &str) -> String {
 
 pub fn generate_bibliography(sources: &[SourceNode]) -> String {
     let mut bib = String::new();
+    let mut seen = std::collections::HashSet::new();
     for s in sources {
-        let key = bib_key(&s.url);
+        let base = bib_key(&s.url);
+        let mut key = base.clone();
+        let mut counter = 1;
+        while !seen.insert(key.clone()) {
+            counter += 1;
+            key = format!("{}_{}", base, counter);
+        }
         let title = s.title.replace('"', "'");
         bib.push_str(&format!(
             "@misc{{{key},
