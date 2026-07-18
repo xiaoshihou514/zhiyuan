@@ -71,8 +71,10 @@ impl WebExtractor {
     }
 
     fn clean_text(&self, text: &str) -> String {
+        let re_image = regex_lite::Regex::new(r"!\[.*?\]\(.*?\)").unwrap();
+        let text = re_image.replace_all(text, "");
         let re_whitespace = regex_lite::Regex::new(r"\s+").unwrap();
-        let collapsed = re_whitespace.replace_all(text, " ");
+        let collapsed = re_whitespace.replace_all(&text, " ");
         let truncated: String = collapsed.chars().take(self.max_text_length).collect();
         truncated.trim().to_string()
     }
@@ -102,21 +104,31 @@ impl WebExtractor {
             .await
             .map_err(|e| Error::Extract(format!("PDF 读取失败 {}: {e}", url)))?;
 
-        let result = tokio::time::timeout(Duration::from_secs(120), async {
+        let text = tokio::time::timeout(Duration::from_secs(120), async {
             tokio::task::spawn_blocking(move || {
+                use pdf_oxide::converters::ConversionOptions;
                 use pdf_oxide::PdfDocument;
+
                 let doc = PdfDocument::from_bytes(bytes.to_vec())
                     .map_err(|e| Error::Extract(format!("PDF 打开失败: {e}")))?;
-                doc.extract_all_text()
+                doc.remove_artifacts(0.15)
+                    .map_err(|e| Error::Extract(format!("PDF 去伪影失败: {e}")))?;
+                let opts = ConversionOptions {
+                    include_images: false,
+                    strip_running_headers_footers: true,
+                    detect_headings: true,
+                    ..Default::default()
+                };
+                doc.to_markdown_all(&opts)
                     .map_err(|e| Error::Extract(format!("PDF 文本提取失败: {e}")))
             })
             .await
             .map_err(|e| Error::Extract(format!("PDF 提取线程失败: {e}")))?
         })
         .await
-        .map_err(|_| Error::Extract("PDF 提取超时（2分钟）".into()))?;
+        .map_err(|_| Error::Extract("PDF 提取超时（2分钟）".into()))??;
 
-        result
+        Ok(self.clean_text(&text))
     }
 }
 
