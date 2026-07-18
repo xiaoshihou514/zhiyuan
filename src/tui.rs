@@ -419,6 +419,7 @@ impl Component for App {
                         Constraint::Min(3),
                         Constraint::Length(4),
                         Constraint::Length(1),
+                        Constraint::Length(1),
                     ])
                     .split(inner);
 
@@ -468,7 +469,7 @@ impl Component for App {
                     Paragraph::new("── Enter 确认执行 ──")
                         .alignment(Alignment::Center)
                         .fg(GRAY),
-                    chunks[4],
+                    chunks[5],
                 );
             }
             Phase::Researching {
