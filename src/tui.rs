@@ -14,7 +14,7 @@ use tuirealm::{
     state::State,
 };
 use zhiyuan_core::{
-    ProgressUpdate, QualityScore, ResearchPlan, ResearchQuery, ResearchReport, Uuid,
+    ProgressUpdate, QualityScore, ResearchPlan, ResearchReport,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -67,6 +67,9 @@ impl InputBuf {
     fn pop(&mut self) {
         self.text.pop();
     }
+    fn clear(&mut self) {
+        self.text.clear();
+    }
     fn value(&self) -> &str {
         &self.text
     }
@@ -108,7 +111,7 @@ pub struct App {
     phase: Phase,
     event_rx: tokio::sync::mpsc::UnboundedReceiver<TuiEvent>,
     query_text: String,
-    research_trigger: Option<tokio::sync::oneshot::Sender<(ResearchQuery, Option<ResearchPlan>)>>,
+    plan_feedback_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     needs_pdf: bool,
 }
 
@@ -116,13 +119,13 @@ impl App {
     pub fn new(
         query_text: String,
         event_rx: tokio::sync::mpsc::UnboundedReceiver<TuiEvent>,
-        research_trigger: tokio::sync::oneshot::Sender<(ResearchQuery, Option<ResearchPlan>)>,
+        plan_feedback_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     ) -> Self {
         Self {
             phase: Phase::Loading,
             event_rx,
             query_text,
-            research_trigger: Some(research_trigger),
+            plan_feedback_tx,
             needs_pdf: false,
         }
     }
@@ -195,16 +198,9 @@ impl App {
         };
     }
 
-    fn fire_research(&mut self, clarification: Option<String>, plan: ResearchPlan) {
+    fn fire_research(&mut self, plan: ResearchPlan) {
         let tasks: Vec<String> = plan.sub_tasks.iter().map(|t| t.description.clone()).collect();
-        let query = ResearchQuery {
-            id: Uuid::new_v4(),
-            query: self.query_text.clone(),
-            clarification,
-        };
-        if let Some(trigger) = self.research_trigger.take() {
-            let _ = trigger.send((query, Some(plan)));
-        }
+        self.plan_feedback_tx.take();
         self.start_researching(tasks);
     }
 
@@ -776,12 +772,14 @@ impl AppComponent<Msg, NoUserEvent> for App {
                         ..
                     } = self.phase
                     {
-                        let feedback = {
-                            let trimmed = input.value().trim().to_string();
-                            if trimmed.is_empty() { None } else { Some(trimmed) }
-                        };
+                        let trimmed = input.value().trim().to_string();
                         let plan = plan.clone();
-                        self.fire_research(feedback, plan);
+                        if trimmed.is_empty() {
+                            self.fire_research(plan);
+                        } else if let Some(ref tx) = self.plan_feedback_tx {
+                            let _ = tx.send(trimmed);
+                            input.clear();
+                        }
                     }
                     None
                 }

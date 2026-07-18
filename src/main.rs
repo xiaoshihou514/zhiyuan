@@ -99,6 +99,8 @@ async fn main() -> anyhow::Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<TuiEvent>();
     let (research_trigger_tx, research_trigger_rx) =
         tokio::sync::oneshot::channel::<(ResearchQuery, Option<ResearchPlan>)>();
+    let (plan_feedback_tx, plan_feedback_rx) =
+        tokio::sync::mpsc::unbounded_channel::<String>();
 
     {
         let dual = std::sync::Mutex::new(DualWriter {
@@ -158,25 +160,37 @@ async fn main() -> anyhow::Result<()> {
     if cli.clarify {
         let tx = event_tx.clone();
         let llm_clone = llm.clone_box();
-
-        let inner_query = ResearchQuery::new(cli.query.clone());
         let rs = config.research.clone();
+        let research_tx = research_trigger_tx;
+        let mut rx = plan_feedback_rx;
+        let mut query = ResearchQuery::new(cli.query.clone());
+
         tokio::spawn(async move {
             let planner = zhiyuan_agents::PlannerAgent::new(llm_clone);
-            match planner.create_plan(&inner_query, &rs).await {
-                Ok(plan) => {
-                    tx.send(TuiEvent::PlanReady(plan)).ok();
-                }
-                Err(_) => {
-                    tx.send(TuiEvent::PlanReady(ResearchPlan {
-                        query_id: inner_query.id,
+            loop {
+                let plan = match planner.create_plan(&query, &rs).await {
+                    Ok(p) => p,
+                    Err(_) => ResearchPlan {
+                        query_id: query.id,
                         sub_tasks: vec![],
                         outline: None,
-                    }))
-                    .ok();
+                    },
+                };
+                let _ = tx.send(TuiEvent::PlanReady(plan.clone()));
+                match rx.recv().await {
+                    Some(feedback) => {
+                        query.clarification = Some(feedback);
+                    }
+                    None => {
+                        let _ = research_tx.send((query, Some(plan)));
+                        break;
+                    }
                 }
             }
         });
+    } else {
+        let query = ResearchQuery::new(cli.query.clone());
+        let _ = research_trigger_tx.send((query, None));
     }
 
     {
@@ -215,13 +229,10 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let research_trigger = if cli.clarify {
-        research_trigger_tx
+    let plan_feedback_tx = if cli.clarify {
+        Some(plan_feedback_tx)
     } else {
-        let query = ResearchQuery::new(cli.query.clone());
-        let _ = research_trigger_tx.send((query, None));
-        let (dummy, _) = tokio::sync::oneshot::channel();
-        dummy
+        None
     };
 
     let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
@@ -232,7 +243,7 @@ async fn main() -> anyhow::Result<()> {
 
     app.mount(
         Id::App,
-        Box::new(App::new(cli.query.clone(), event_rx, research_trigger)),
+        Box::new(App::new(cli.query.clone(), event_rx, plan_feedback_tx)),
         vec![],
     )?;
     app.active(&Id::App)?;
