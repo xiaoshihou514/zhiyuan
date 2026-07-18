@@ -449,6 +449,14 @@ impl Component for App {
                     outline_inner,
                 );
 
+                let input_row = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([
+                        Constraint::Length(2),
+                        Constraint::Min(1),
+                        Constraint::Length(2),
+                    ])
+                    .split(chunks[3]);
                 let input_bg = Color::Rgb(30, 40, 60);
                 let input_block = Block::default()
                     .borders(Borders::LEFT)
@@ -463,7 +471,7 @@ impl Component for App {
                     Paragraph::new(input_text)
                         .style(Style::new().bg(input_bg).fg(GOLD))
                         .block(input_block),
-                    chunks[3],
+                    input_row[1],
                 );
                 frame.render_widget(
                     Paragraph::new("── Enter 确认执行 ──")
