@@ -248,9 +248,10 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
         // split by blank lines → paragraphs
         let mut content_offset = 0usize;
         for para in section.content.split("\n\n") {
+            let raw_len = para.len();
             let para = para.trim();
             if para.is_empty() {
-                content_offset += 2;
+                content_offset += raw_len + 2;
                 continue;
             }
 
@@ -262,12 +263,12 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
             spans.push(ParaSpan {
                 section_idx: si,
                 content_start: content_offset,
-                content_end: content_offset + para.len(),
+                content_end: content_offset + raw_len,
                 source_line_start: para_start,
                 source_line_end: para_end,
             });
 
-            content_offset += para.len() + 2;
+            content_offset += raw_len + 2;
         }
     }
 

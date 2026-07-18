@@ -22,7 +22,7 @@
         text(size: 12pt, weight: "regular")[
           致远
           #h(1fr)
-          #page-number
+          counter(page).get().at(0)
         ]
       }
     }
@@ -34,11 +34,14 @@
   show heading: it => {
     if it.level == 1 and it.numbering != none {
       v(40pt)
-      text(size: 30pt)[#counter(heading).display() #linebreak() #it.body]
+      let heading-body = it.body
+      context {
+        text(size: 30pt, counter(heading).display() + " " + heading-body)
+      }
       v(60pt)
     } else {
       v(5pt)
-      [#it]
+      it
       v(12pt)
     }
   }
