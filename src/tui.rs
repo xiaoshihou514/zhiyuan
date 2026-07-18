@@ -14,7 +14,7 @@ use tuirealm::{
     state::State,
 };
 use zhiyuan_core::{
-    ProgressUpdate, QualityScore, ResearchPlan, ResearchReport,
+    ProgressUpdate, QualityScore, ResearchPlan, ResearchReport, SubTask,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -32,6 +32,14 @@ const RED: Color = Color::Rgb(196, 85, 76);
 const GRAY: Color = Color::Rgb(136, 143, 160);
 const STEEL: Color = Color::Rgb(74, 111, 165);
 const WARM: Color = Color::Rgb(232, 213, 183);
+
+fn tasks_summary(sub_tasks: &[SubTask]) -> String {
+    sub_tasks
+        .iter()
+        .map(|t| t.description.as_str())
+        .collect::<Vec<_>>()
+        .join("  ◆  ")
+}
 
 #[derive(Debug, Clone)]
 pub enum TuiEvent {
@@ -80,6 +88,9 @@ enum Phase {
     PlanReview {
         plan: ResearchPlan,
         input: InputBuf,
+        feedback_pending: bool,
+        versions: Vec<String>,
+        version_scroll: usize,
     },
     Researching {
         start_time: Instant,
@@ -144,10 +155,20 @@ impl App {
     fn drain_events(&mut self) {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
-                TuiEvent::PlanReady(plan) => {
+                TuiEvent::PlanReady(new_plan) => {
+                    let version = tasks_summary(&new_plan.sub_tasks);
+                    if let Phase::PlanReview { ref mut plan, ref mut versions, ref mut feedback_pending, .. } = self.phase {
+                        versions.push(version);
+                        *feedback_pending = false;
+                        *plan = new_plan;
+                        return;
+                    }
                     self.phase = Phase::PlanReview {
-                        plan,
+                        plan: new_plan,
                         input: InputBuf::new(),
+                        feedback_pending: false,
+                        versions: vec![version],
+                        version_scroll: 0,
                     };
                 }
                 TuiEvent::Progress(u) => self.handle_progress(u),
@@ -410,13 +431,28 @@ impl Component for App {
                     inner,
                 );
             }
-            Phase::PlanReview { plan, input } => {
+            Phase::PlanReview { plan, input, versions, version_scroll, feedback_pending } => {
+                let has_history = !versions.is_empty();
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([
                         Constraint::Length(1),
                         Constraint::Length(4),
-                        Constraint::Min(3),
+                        if has_history {
+                            Constraint::Min(2)
+                        } else {
+                            Constraint::Min(3)
+                        },
+                        if has_history {
+                            Constraint::Length(1)
+                        } else {
+                            Constraint::Length(0)
+                        },
+                        if has_history {
+                            Constraint::Min(2)
+                        } else {
+                            Constraint::Length(0)
+                        },
                         Constraint::Length(4),
                         Constraint::Length(1),
                         Constraint::Length(1),
@@ -443,12 +479,38 @@ impl Component for App {
                 } else {
                     String::new()
                 };
-                let outline_inner = chunks[2];
+                let outline_inner = if has_history { chunks[2] } else { chunks[2] };
                 frame.render_widget(
                     Paragraph::new(outline_text).wrap(Wrap { trim: false }),
                     outline_inner,
                 );
 
+                if has_history {
+                    frame.render_widget(
+                        Paragraph::new("── 修订历史 ──").fg(GRAY),
+                        chunks[3],
+                    );
+
+                    let ver_chunk = chunks[4];
+                    let height = ver_chunk.height as usize;
+                    let total = versions.len();
+                    let max_start = total.saturating_sub(height);
+                    let start = max_start.saturating_sub(*version_scroll).min(max_start);
+                    let mut ver_lines: Vec<Line> = versions.iter().enumerate().skip(start).take(height).map(|(i, v)| {
+                        Line::from(Span::styled(
+                            format!("第 {} 版  {}", i + 1, v),
+                            GRAY,
+                        ))
+                    }).collect();
+                    if *feedback_pending && start + height >= total {
+                        ver_lines.push(Line::from(
+                            Span::styled("⏳ 正在更新...", GOLD),
+                        ));
+                    }
+                    frame.render_widget(Paragraph::new(ver_lines), ver_chunk);
+                }
+
+                let input_chunk = if has_history { chunks[5] } else { chunks[3] };
                 let input_row = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([
@@ -456,7 +518,7 @@ impl Component for App {
                         Constraint::Min(1),
                         Constraint::Length(2),
                     ])
-                    .split(chunks[3]);
+                    .split(input_chunk);
                 let input_bg = Color::Rgb(30, 40, 60);
                 let input_block = Block::default()
                     .borders(Borders::LEFT)
@@ -473,11 +535,13 @@ impl Component for App {
                         .block(input_block),
                     input_row[1],
                 );
+
+                let enter_chunk = if has_history { chunks[7] } else { chunks[5] };
                 frame.render_widget(
                     Paragraph::new("── Enter 确认执行 ──")
                         .alignment(Alignment::Center)
                         .fg(GRAY),
-                    chunks[5],
+                    enter_chunk,
                 );
             }
             Phase::Researching {
@@ -783,15 +847,18 @@ impl AppComponent<Msg, NoUserEvent> for App {
                     if let Phase::PlanReview {
                         ref mut input,
                         ref plan,
+                        ref mut feedback_pending,
                         ..
                     } = self.phase
                     {
+                        if *feedback_pending { return None; }
                         let trimmed = input.value().trim().to_string();
                         let plan = plan.clone();
                         if trimmed.is_empty() {
                             self.fire_research(plan);
                         } else if let Some(ref tx) = self.plan_feedback_tx {
                             let _ = tx.send(trimmed);
+                            *feedback_pending = true;
                             input.clear();
                         }
                     }
@@ -812,21 +879,33 @@ impl AppComponent<Msg, NoUserEvent> for App {
                 _ => None,
             },
             Event::Mouse(m) => {
-                if let Phase::Researching {
-                    ref mut log_scroll,
-                    ref log_lines,
-                    ..
-                } = self.phase
-                {
-                    match m.kind {
-                        MouseEventKind::ScrollUp => {
-                            let max_scroll = log_lines.len().saturating_sub(12);
-                            *log_scroll = (*log_scroll + 1).min(max_scroll);
+                let is_researching = matches!(self.phase, Phase::Researching { .. });
+                let is_plan_review = matches!(self.phase, Phase::PlanReview { .. });
+                if is_researching {
+                    if let Phase::Researching { ref mut log_scroll, ref log_lines, .. } = self.phase {
+                        match m.kind {
+                            MouseEventKind::ScrollUp => {
+                                let max_scroll = log_lines.len().saturating_sub(12);
+                                *log_scroll = (*log_scroll + 1).min(max_scroll);
+                            }
+                            MouseEventKind::ScrollDown => {
+                                *log_scroll = log_scroll.saturating_sub(1);
+                            }
+                            _ => {}
                         }
-                        MouseEventKind::ScrollDown => {
-                            *log_scroll = log_scroll.saturating_sub(1);
+                    }
+                } else if is_plan_review {
+                    if let Phase::PlanReview { ref mut version_scroll, ref versions, .. } = self.phase {
+                        match m.kind {
+                            MouseEventKind::ScrollUp => {
+                                let max_scroll = versions.len().saturating_sub(1);
+                                *version_scroll = (*version_scroll + 1).min(max_scroll);
+                            }
+                            MouseEventKind::ScrollDown => {
+                                *version_scroll = version_scroll.saturating_sub(1);
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
                 None
