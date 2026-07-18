@@ -44,6 +44,7 @@ struct PdfWorld {
     fonts: Vec<Font>,
     main_source: Source,
     sources: HashMap<FileId, Source>,
+    bib_bytes: Option<Bytes>,
 }
 
 impl World for PdfWorld {
@@ -66,7 +67,12 @@ impl World for PdfWorld {
             .ok_or_else(|| FileError::NotFound(PathBuf::new()))
     }
 
-    fn file(&self, _id: FileId) -> FileResult<Bytes> {
+    fn file(&self, id: FileId) -> FileResult<Bytes> {
+        if id.vpath().as_rooted_path().ends_with("works.bib") {
+            if let Some(ref bib) = self.bib_bytes {
+                return Ok(bib.clone());
+            }
+        }
         Err(FileError::NotFound(PathBuf::new()))
     }
 
@@ -268,6 +274,7 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
 pub fn compile_source_detailed(
     source: &str,
     font_paths: &[String],
+    bib_source: Option<&str>,
 ) -> std::result::Result<Vec<u8>, Vec<SourceError>> {
     let main_id = FileId::new(None, VirtualPath::new(Path::new("/main.typ")));
     let main_source = Source::new(main_id, source.to_string());
@@ -275,12 +282,14 @@ pub fn compile_source_detailed(
     sources.insert(main_id, main_source.clone());
 
     let (book, fonts) = load_fonts(font_paths);
+    let bib_bytes = bib_source.map(|s| Bytes::new(s.as_bytes().to_vec()));
     let world = PdfWorld {
         library: LazyHash::new(typst::Library::default()),
         book,
         fonts,
         main_source,
         sources,
+        bib_bytes,
     };
 
     let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);

@@ -304,12 +304,13 @@ async fn main() -> anyhow::Result<()> {
                                 let (source, source_map) = pdf::generate_typst_source(&report);
                                 let _ = std::fs::write(&typ_path, &source);
                                 let bib_path = session_dir.join("works.bib");
-                                let _ = std::fs::write(&bib_path, &pdf::generate_bibliography(&report.citation_graph.sources));
+                                let bib_content = pdf::generate_bibliography(&report.citation_graph.sources);
+                                let _ = std::fs::write(&bib_path, &bib_content);
                                 let _ = tx.send(TuiEvent::PdfMessage(
                                     format!("✓ Typst 源码已保存到 {:?}", typ_path.file_name().unwrap_or_default())
                                 ));
 
-                                match pdf::compile_source_detailed(&source, &font_paths) {
+                                match pdf::compile_source_detailed(&source, &font_paths, Some(&bib_content)) {
                                     Ok(pdf_bytes) => {
                                         match std::fs::write(&pdf_path, &pdf_bytes) {
                                             Ok(()) => {
