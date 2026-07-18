@@ -416,8 +416,8 @@ impl Component for App {
                     .constraints([
                         Constraint::Length(1),
                         Constraint::Length(4),
-                        Constraint::Min(4),
-                        Constraint::Length(3),
+                        Constraint::Min(3),
+                        Constraint::Length(4),
                         Constraint::Length(1),
                     ])
                     .split(inner);
