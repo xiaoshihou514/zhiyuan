@@ -417,7 +417,7 @@ impl Component for App {
                         Constraint::Length(1),
                         Constraint::Length(4),
                         Constraint::Min(3),
-                        Constraint::Length(3),
+                        Constraint::Length(4),
                         Constraint::Length(1),
                     ])
                     .split(inner);
@@ -454,9 +454,9 @@ impl Component for App {
                     .border_style(Style::new().fg(GOLD))
                     .style(Style::new().bg(input_bg));
                 let input_text = if input.value().is_empty() {
-                    "  输入评论或修改建议，然后 Enter 执行  ".to_string()
+                    "\n  输入评论或修改建议，然后 Enter 执行  ".to_string()
                 } else {
-                    format!("  {}\u{258c}  ", input.value())
+                    format!("\n  {}\u{258c}  ", input.value())
                 };
                 frame.render_widget(
                     Paragraph::new(input_text)
