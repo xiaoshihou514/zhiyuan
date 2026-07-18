@@ -279,9 +279,11 @@ async fn main() -> anyhow::Result<()> {
                             + ".pdf";
                         let pdf_path = std::path::PathBuf::from(&pdf_filename);
                         let typ_path = session_dir.join("report.typ");
+                        let sd = session_dir.clone();
                         let llm = llm.clone_box();
 
                         tokio::spawn(async move {
+                            let session_dir = sd;
                             let tx = tx;
                             let mut report = report;
                             let mut fix_history: Vec<(String, String)> = Vec::new();
@@ -290,6 +292,8 @@ async fn main() -> anyhow::Result<()> {
                             for _retry in 0..5 {
                                 let (source, source_map) = pdf::generate_typst_source(&report);
                                 let _ = std::fs::write(&typ_path, &source);
+                                let bib_path = session_dir.join("works.bib");
+                                let _ = std::fs::write(&bib_path, &pdf::generate_bibliography(&report.citation_graph.sources));
                                 let _ = tx.send(TuiEvent::PdfMessage(
                                     format!("✓ Typst 源码已保存到 {:?}", typ_path.file_name().unwrap_or_default())
                                 ));

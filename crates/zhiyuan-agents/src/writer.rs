@@ -2,6 +2,43 @@ use chrono::Utc;
 use uuid::Uuid;
 use zhiyuan_core::{CitationGraph, Finding, LlmClient, QualityScore, ReportChapter, ReportSection, ResearchReport, Result};
 
+fn bib_key(url: &str) -> String {
+    let url = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    let domain = url.split('/').next().unwrap_or("unknown");
+    let prefix = domain
+        .trim_start_matches("www.")
+        .split('.')
+        .next()
+        .unwrap_or("x");
+    let path = url.trim_start_matches(domain).trim_matches('/');
+    let slug: String = path
+        .split('/')
+        .last()
+        .unwrap_or("")
+        .trim_end_matches(".pdf")
+        .trim_end_matches(".html")
+        .trim_end_matches(".htm")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let slug = slug.trim_matches('-').to_lowercase();
+    if slug.is_empty() || slug.len() < 3 {
+        prefix.to_string()
+    } else {
+        format!("{}_{}", prefix, slug)
+    }
+}
+
+fn key_map_table(sources: &[String]) -> String {
+    let mut table = String::from("\n\n引用 key 对照表（使用 @key 格式标注引用，例如 @example_report）：\nkey                    URL\n────────────────────────────────────────────────────\n");
+    for url in sources {
+        table.push_str(&format!("{:<22} {}\n", bib_key(url), url));
+    }
+    table
+}
+
 pub struct WriterAgent {
     llm: Box<dyn LlmClient>,
 }
@@ -59,14 +96,16 @@ impl WriterAgent {
 
         let system = "根据已有报告草稿和新的研究发现，更新和优化研究报告。
 保持结构一致性，将新信息融合到适当章节中。
-报告使用 Typst 格式，包含内联引用。
+报告使用 Typst 格式，引用格式使用 @key，例如 @kpmg_report23。
 
-Typst 语法参考：
-= 一级标题  == 二级标题  === 三级标题
-*粗体*  _斜体_
-- 无序列表  + 有序列表
-`行内代码`  ```代码块```
-空行分段";
+只输出纯 Typst 正文，不要 ```typst 围栏。";
+
+        let all_urls: Vec<String> = existing_report
+            .sections
+            .iter()
+            .flat_map(|s| s.citations.clone())
+            .chain(new_findings.iter().flat_map(|f| f.sources.clone()))
+            .collect();
 
         let user = format!(
             "研究问题：{question}
@@ -79,8 +118,10 @@ Typst 语法参考：
 
 请将新发现整合到已有报告中，更新相关章节。
 如果新发现引入了新主题，添加新的章节。
-保持报告的整体连贯性和深度。",
-            question = existing_report.title.replace(" - 研究报告", "")
+保持报告的整体连贯性和深度。
+引用请使用 @key 格式。{key_table}",
+            question = existing_report.title.replace(" - 研究报告", ""),
+            key_table = key_map_table(&all_urls)
         );
 
         let response = self.llm.prompt(system, &user).await?;
@@ -117,14 +158,9 @@ Typst 语法参考：
         quality_score: &QualityScore,
     ) -> Result<ResearchReport> {
         let system = "根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。
-报告使用 Typst 格式。
+报告使用 Typst 格式，引用格式使用 @key，例如 @kpmg_report23。
 
-Typst 语法参考：
-= 一级标题  == 二级标题  === 三级标题
-*粗体*  _斜体_
-- 无序列表  + 有序列表
-`行内代码`  ```代码块```
-空行分段";
+只输出纯 Typst 正文，不要 ```typst 围栏。";
 
         let chapters_str: String = chapters
             .iter()
@@ -142,6 +178,11 @@ Typst 语法参考：
             })
             .collect::<Vec<_>>()
             .join("\n\n");
+
+        let all_urls: Vec<String> = chapters
+            .iter()
+            .flat_map(|ch| ch.findings.iter().flat_map(|f| f.sources.clone()))
+            .collect();
 
         let user = format!(
             "研究问题：{research_question}
@@ -162,10 +203,11 @@ Typst 语法参考：
 2. 研究背景
 3. 各章节正文
 4. 结论与展望
-5. 参考文献
 
-确保章节之间逻辑连贯，交叉校对意见已落实。",
-            quality = serde_json::to_string_pretty(quality_score).unwrap_or_default()
+确保章节之间逻辑连贯，交叉校对意见已落实。
+引用请使用 @key 格式。{key_table}",
+            quality = serde_json::to_string_pretty(quality_score).unwrap_or_default(),
+            key_table = key_map_table(&all_urls)
         );
 
         let response = self.llm.prompt(system, &user).await?;
@@ -211,14 +253,14 @@ Typst 语法参考：
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let system = "根据研究发现和引用信息，生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
+        let all_urls: Vec<String> = findings
+            .iter()
+            .flat_map(|f| f.sources.clone())
+            .collect();
 
-Typst 语法参考：
-= 一级标题  == 二级标题  === 三级标题
-*粗体*  _斜体_
-- 无序列表  + 有序列表
-`行内代码`  ```代码块```
-空行分段";
+        let system = "根据研究发现和引用信息，生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
+引用格式使用 @key，例如 @kpmg_report23，key 对照表见下方。
+只输出纯 Typst 正文，不要 ```typst 围栏。";
 
         let user = format!(
             "请根据以下研究发现，撰写一份结构化的研究报告。
@@ -236,8 +278,9 @@ Typst 语法参考：
 3. 主要发现（分章节）
 4. 结论与展望
 
-每个章节请包含内联引用。",
-            serde_json::to_string_pretty(quality_score).unwrap_or_default()
+每个章节请使用 @key 格式包含内联引用。{key_table}",
+            serde_json::to_string_pretty(quality_score).unwrap_or_default(),
+            key_table = key_map_table(&all_urls)
         );
 
         self.llm.prompt(system, &user).await

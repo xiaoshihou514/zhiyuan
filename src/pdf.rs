@@ -10,7 +10,7 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::LibraryExt;
 use typst::World;
-use zhiyuan_core::ResearchReport;
+use zhiyuan_core::{ResearchReport, SourceNode};
 
 pub struct ParaSpan {
     pub section_idx: usize,
@@ -26,7 +26,9 @@ pub struct SourceMap {
 
 impl SourceMap {
     pub fn span_at_line(&self, line: usize) -> Option<&ParaSpan> {
-        self.spans.iter().find(|s| line >= s.source_line_start && line < s.source_line_end)
+        self.spans
+            .iter()
+            .find(|s| line >= s.source_line_start && line < s.source_line_end)
     }
 }
 
@@ -88,7 +90,20 @@ impl World for PdfWorld {
             d -= days_in_year;
             y += 1;
         }
-        let months = [31, if is_leap(y) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        let months = [
+            31,
+            if is_leap(y) { 29 } else { 28 },
+            31,
+            30,
+            31,
+            30,
+            31,
+            31,
+            30,
+            31,
+            30,
+            31,
+        ];
         let mut m = 0u8;
         for (i, &days_in_m) in months.iter().enumerate() {
             if d < days_in_m {
@@ -141,6 +156,51 @@ fn load_fonts(font_paths: &[String]) -> (LazyHash<FontBook>, Vec<Font>) {
     (LazyHash::new(book), fonts)
 }
 
+pub fn bib_key(url: &str) -> String {
+    let url = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    let domain = url.split('/').next().unwrap_or("unknown");
+    let prefix = domain
+        .trim_start_matches("www.")
+        .split('.')
+        .next()
+        .unwrap_or("x");
+    let path = url.trim_start_matches(domain).trim_matches('/');
+    let slug: String = path
+        .split('/')
+        .last()
+        .unwrap_or("")
+        .trim_end_matches(".pdf")
+        .trim_end_matches(".html")
+        .trim_end_matches(".htm")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let slug = slug.trim_matches('-').to_lowercase();
+    if slug.is_empty() || slug.len() < 3 {
+        prefix.to_string()
+    } else {
+        format!("{}_{}", prefix, slug)
+    }
+}
+
+pub fn generate_bibliography(sources: &[SourceNode]) -> String {
+    let mut bib = String::new();
+    for s in sources {
+        let key = bib_key(&s.url);
+        let title = s.title.replace('"', "'");
+        bib.push_str(&format!(
+            "@misc{{{key},
+  title = {{{title}}},
+  url = {{{}}}
+}}\n\n",
+            s.url
+        ));
+    }
+    bib
+}
+
 pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
     let mut typ = String::new();
     let mut spans = Vec::new();
@@ -150,8 +210,7 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
     }
 
     // preamble
-    let preamble = format!(
-        "#set page(
+    let preamble = "#set page(
   margin: (x: 2.5cm, y: 2cm),
   numbering: \"1\",
 )
@@ -162,10 +221,6 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
   #v(1cm)
   #align(center, text(size: 18pt, weight: \"bold\", it.body))
   #v(0.3cm)
-  #align(center, text(size: 9pt, fill: gray))[
-    生成于 {}
-  ]
-  #v(0.5cm)
 ]
 
 #show heading.where(level: 2): it => [
@@ -179,12 +234,7 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
 ]
 
 #set par(justify: true, leading: 0.65em)
-
-= {}
-",
-        report.generated_at.format("%Y-%m-%d %H:%M UTC"),
-        report.title
-    );
+";
 
     typ.push_str(&preamble);
 
@@ -193,9 +243,6 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
         if section.content.is_empty() {
             continue;
         }
-
-        // section heading
-        typ.push_str(&format!("== {}\n", section.heading));
 
         // split by blank lines → paragraphs
         let mut content_offset = 0usize;
@@ -224,33 +271,9 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
     }
 
     // citations
-    let citations: Vec<&str> = report
-        .citation_graph
-        .sources
-        .iter()
-        .map(|s| s.url.as_str())
-        .collect();
-
-    if !citations.is_empty() {
-        typ.push_str("= 参考文献\n\n");
-        for (i, url) in citations.iter().enumerate() {
-            typ.push_str(&format!("{}. {}\n", i + 1, url));
-        }
-        typ.push('\n');
+    if !report.citation_graph.sources.is_empty() {
+        typ.push_str("= 参考文献\n\n#bibliography(\"works.bib\", title: none)\n");
     }
-
-    // quality score
-    let q = &report.quality_score;
-    let footer = format!(
-        "---
-质量评分：{0}（覆盖率：{1:.1}%，可靠性：{2:.1}%，深度：{3:.1}%）
-",
-        q.overall,
-        q.coverage * 100.0,
-        q.reliability * 100.0,
-        q.depth * 100.0,
-    );
-    typ.push_str(&footer);
 
     (typ, SourceMap { spans })
 }
@@ -288,8 +311,12 @@ pub fn compile_source_detailed(
                 standards: typst_pdf::PdfStandards::default(),
                 tagged: false,
             };
-            let pdf_bytes = typst_pdf::pdf(&document, &pdf_options)
-                .map_err(|e| vec![SourceError { line: 0, message: format!("PDF export failed: {:?}", e) }])?;
+            let pdf_bytes = typst_pdf::pdf(&document, &pdf_options).map_err(|e| {
+                vec![SourceError {
+                    line: 0,
+                    message: format!("PDF export failed: {:?}", e),
+                }]
+            })?;
             Ok(pdf_bytes)
         }
         Err(diags) => {
@@ -308,7 +335,10 @@ pub fn compile_source_detailed(
                             }
                         })
                         .unwrap_or(0);
-                    SourceError { line, message: d.message.to_string() }
+                    SourceError {
+                        line,
+                        message: d.message.to_string(),
+                    }
                 })
                 .collect();
             Err(errors)
