@@ -1,9 +1,0 @@
-[search]
-max_results = 10
-
-[llm]
-api_key = ""
-base_url = "https://api.openai.com/v1"
-
-[research]
-concurrency = 4

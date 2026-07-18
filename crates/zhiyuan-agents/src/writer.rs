@@ -31,6 +31,18 @@ fn bib_key(url: &str) -> String {
     }
 }
 
+fn extract_title(raw: &str) -> (String, String) {
+    let raw = raw.trim();
+    if let Some(rest) = raw.strip_prefix("= ") {
+        let end = rest.find('\n').unwrap_or(rest.len());
+        let title = rest[..end].trim().to_string();
+        let body = rest[end..].trim().to_string();
+        (title, body)
+    } else {
+        ("研究报告".into(), raw.to_string())
+    }
+}
+
 fn key_map_table(entries: &[(String, String)]) -> String {
     let mut table = String::from("\n\n引用 key 对照表（使用 @key 格式标注引用，例如 @example_report）：\nkey                    标题\n────────────────────────────────────────────────────\n");
     for (url, title) in entries {
@@ -56,14 +68,14 @@ impl WriterAgent {
         citation_graph: &CitationGraph,
         quality_score: &QualityScore,
     ) -> Result<ResearchReport> {
-        let response = self.build_report_content(research_question, findings, citation_graph, quality_score).await?;
+        let (title, content) = self.build_report_content(research_question, findings, citation_graph, quality_score).await?;
 
         Ok(ResearchReport {
             query_id: Uuid::new_v4(),
-            title: format!("{research_question} - 研究报告"),
+            title,
             sections: vec![ReportSection {
                 heading: "研究结果".into(),
-                content: response,
+                content,
                 citations: findings.iter().flat_map(|f| f.sources.clone()).collect(),
             }],
             citation_graph: citation_graph.clone(),
@@ -98,6 +110,7 @@ impl WriterAgent {
         let system = "根据已有报告草稿和新的研究发现，更新和优化研究报告。
 保持结构一致性，将新信息融合到适当章节中。
 报告使用 Typst 格式，引用格式使用 @key，例如 @kpmg_report23。
+第一行用 = 号开头写上报告标题。
 
 只输出纯 Typst 正文，不要 ```typst 围栏。";
 
@@ -123,11 +136,12 @@ impl WriterAgent {
 如果新发现引入了新主题，添加新的章节。
 保持报告的整体连贯性和深度。
 引用请使用 @key 格式。{key_table}",
-            question = existing_report.title.replace(" - 研究报告", ""),
+            question = existing_report.title,
             key_table = key_map_table(&entries)
         );
 
-        let response = self.llm.prompt(system, &user).await?;
+        let raw = self.llm.prompt(system, &user).await?;
+        let (title, content) = extract_title(&raw);
 
         let mut all_citations: Vec<String> = existing_report
             .sections
@@ -140,10 +154,10 @@ impl WriterAgent {
 
         Ok(ResearchReport {
             query_id: existing_report.query_id,
-            title: existing_report.title.clone(),
+            title,
             sections: vec![ReportSection {
                 heading: "研究结果".into(),
-                content: response,
+                content,
                 citations: all_citations,
             }],
             citation_graph: citation_graph.clone(),
@@ -162,6 +176,7 @@ impl WriterAgent {
     ) -> Result<ResearchReport> {
         let system = "根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。
 报告使用 Typst 格式，引用格式使用 @key，例如 @kpmg_report23。
+第一行用 = 号开头写上报告标题。
 
 只输出纯 Typst 正文，不要 ```typst 围栏。";
 
@@ -215,7 +230,8 @@ impl WriterAgent {
             key_table = key_map_table(&entries)
         );
 
-        let response = self.llm.prompt(system, &user).await?;
+        let raw = self.llm.prompt(system, &user).await?;
+        let (title, content) = extract_title(&raw);
 
         let mut all_citations: Vec<String> = chapters
             .iter()
@@ -226,10 +242,10 @@ impl WriterAgent {
 
         Ok(ResearchReport {
             query_id: Uuid::new_v4(),
-            title: format!("{research_question} - 详细研究报告"),
+            title,
             sections: vec![ReportSection {
                 heading: "完整报告".into(),
-                content: response,
+                content,
                 citations: all_citations,
             }],
             citation_graph: CitationGraph {
@@ -248,7 +264,7 @@ async fn build_report_content(
         findings: &[Finding],
         citation_graph: &CitationGraph,
         quality_score: &QualityScore,
-    ) -> Result<String> {
+    ) -> Result<(String, String)> {
         let findings_str: String = findings
             .iter()
             .map(|f| {
@@ -266,6 +282,7 @@ async fn build_report_content(
 
         let system = "根据研究发现和引用信息，生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
 引用格式使用 @key，例如 @kpmg_report23，key 对照表见下方。
+第一行用 = 号开头写上报告标题。
 只输出纯 Typst 正文，不要 ```typst 围栏。";
 
         let user = format!(
@@ -289,6 +306,7 @@ async fn build_report_content(
             key_table = key_map_table(&entries)
         );
 
-        self.llm.prompt(system, &user).await
+        let raw = self.llm.prompt(system, &user).await?;
+        Ok(extract_title(&raw))
     }
 }
