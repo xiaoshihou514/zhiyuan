@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use base64::Engine;
 use typst::diag::{FileError, FileResult, Warned};
 use typst::foundations::{Bytes, Datetime};
 use typst::layout::PagedDocument;
@@ -215,6 +216,11 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
 
     // preamble
     let preamble = include_str!("../template/lib.typ");
+    let icon_data = base64::engine::general_purpose::STANDARD.encode(include_bytes!("../template/icon.svg"));
+    let preamble = preamble.replace(
+        "image(\"icon.svg\"",
+        &format!("image(\"data:image/svg+xml;base64,{}\"", icon_data),
+    );
 
     typ.push_str(&preamble);
     typ.push_str(&format!("\n#show: project.with(title: {})\n\n", quote_string(&report.title)));
