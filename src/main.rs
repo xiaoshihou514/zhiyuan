@@ -294,6 +294,8 @@ async fn main() -> anyhow::Result<()> {
                                 let _ = std::fs::write(&typ_path, &source);
                                 let bib_path = session_dir.join("works.bib");
                                 let _ = std::fs::write(&bib_path, &pdf::generate_bibliography(&report.citation_graph.sources));
+                                let icon_path = session_dir.join("icon.svg");
+                                let _ = std::fs::write(&icon_path, include_bytes!("../template/icon.svg"));
                                 let _ = tx.send(TuiEvent::PdfMessage(
                                     format!("✓ Typst 源码已保存到 {:?}", typ_path.file_name().unwrap_or_default())
                                 ));

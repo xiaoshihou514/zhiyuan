@@ -201,6 +201,10 @@ pub fn generate_bibliography(sources: &[SourceNode]) -> String {
     bib
 }
 
+fn quote_string(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
     let mut typ = String::new();
     let mut spans = Vec::new();
@@ -210,9 +214,10 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
     }
 
     // preamble
-    let preamble = include_str!("template.typ");
+    let preamble = include_str!("../template/lib.typ");
 
     typ.push_str(&preamble);
+    typ.push_str(&format!("\n#show: project.with(title: {})\n\n", quote_string(&report.title)));
 
     // sections
     for (si, section) in report.sections.iter().enumerate() {

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 148 100" width="100%" height="100%">
+  <defs>
+    <!-- 水墨画风格的水墨蓝灰渐变 -->
+    <linearGradient id="deepInk" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3A4B5C" />
+      <stop offset="100%" stop-color="#1A252F" />
+    </linearGradient>
+    <linearGradient id="midInk" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#C0C9D6" />
+      <stop offset="100%" stop-color="#8B9AAB" />
+    </linearGradient>
+    <linearGradient id="fadeInk" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E8ECF0" />
+      <stop offset="100%" stop-color="#B0BDCA" />
+    </linearGradient>
+  </defs>
+
+  <!-- 1. 远山远景（虚无缥缈的思考） -->
+  <path d="M 0 100 L 33 30 L 63 60 L 93 20 L 123 50 L 143 0 L 148 100 Z" fill="url(#fadeInk)" opacity="0.8" />
+
+  <!-- 2. 中景山峦（坚实的研究路径） -->
+  <path d="M 0 100 L 53 50 L 83 80 L 113 40 L 133 60 L 148 20 L 148 100 Z" fill="url(#midInk)" />
+
+  <!-- 3. 近景基石（深厚的理论根基） -->
+  <path d="M 0 100 L 73 70 L 103 90 L 133 65 L 148 45 L 148 100 Z" fill="url(#deepInk)" />
+</svg>
