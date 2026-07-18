@@ -416,8 +416,7 @@ impl Component for App {
                     .constraints([
                         Constraint::Length(1),
                         Constraint::Length(4),
-                        Constraint::Min(2),
-                        Constraint::Length(1),
+                        Constraint::Min(3),
                         Constraint::Length(3),
                         Constraint::Length(1),
                     ])
@@ -450,28 +449,26 @@ impl Component for App {
                 );
 
                 let input_bg = Color::Rgb(30, 40, 60);
-                frame.render_widget(
-                    Paragraph::new("  输入评论或修改建议，然后 Enter 执行")
-                        .style(Style::new().bg(input_bg).fg(GRAY)),
-                    chunks[3],
-                );
                 let input_block = Block::default()
                     .borders(Borders::LEFT)
                     .border_style(Style::new().fg(GOLD))
                     .style(Style::new().bg(input_bg));
+                let input_text = if input.value().is_empty() {
+                    "  输入评论或修改建议，然后 Enter 执行  ".to_string()
+                } else {
+                    format!("  {}\u{258c}  ", input.value())
+                };
                 frame.render_widget(
-                    Paragraph::new(format!("> {}", input.value()))
+                    Paragraph::new(input_text)
                         .style(Style::new().bg(input_bg).fg(GOLD))
                         .block(input_block),
-                    chunks[4],
+                    chunks[3],
                 );
-                let cursor_x = chunks[4].x + 1 + 2 + input.value().chars().count() as u16;
-                frame.set_cursor_position((cursor_x, chunks[4].y));
                 frame.render_widget(
                     Paragraph::new("── Enter 确认执行 ──")
                         .alignment(Alignment::Center)
                         .fg(GRAY),
-                    chunks[5],
+                    chunks[4],
                 );
             }
             Phase::Researching {
