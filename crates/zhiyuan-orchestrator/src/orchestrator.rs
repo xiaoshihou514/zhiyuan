@@ -608,7 +608,7 @@ impl ResearchOrchestrator {
                     tracing::warn!("渐进式报告更新失败: {e}");
                     ResearchReport {
                         query_id: query.id,
-                        title: format!("{} - 研究报告", query.query),
+                        title: query.query.clone(),
                         sections: vec![],
                         citation_graph: state.citation_graph.clone(),
                         quality_score: quality.clone(),

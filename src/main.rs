@@ -306,11 +306,13 @@ async fn main() -> anyhow::Result<()> {
                                 let bib_path = session_dir.join("works.bib");
                                 let bib_content = pdf::generate_bibliography(&report.citation_graph.sources);
                                 let _ = std::fs::write(&bib_path, &bib_content);
+                                let icon_path = session_dir.join("icon.svg");
+                                let _ = std::fs::write(&icon_path, include_bytes!("../template/icon.svg"));
                                 let _ = tx.send(TuiEvent::PdfMessage(
                                     format!("✓ Typst 源码已保存到 {:?}", typ_path.file_name().unwrap_or_default())
                                 ));
 
-                                match pdf::compile_source_detailed(&source, &font_paths, Some(&bib_content)) {
+                                match pdf::compile_source_detailed(&source, &font_paths, Some(&bib_content), Some(include_bytes!("../template/icon.svg"))) {
                                     Ok(pdf_bytes) => {
                                         match std::fs::write(&pdf_path, &pdf_bytes) {
                                             Ok(()) => {

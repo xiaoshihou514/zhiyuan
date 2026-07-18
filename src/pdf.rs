@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use base64::Engine;
 use typst::diag::{FileError, FileResult, Warned};
 use typst::foundations::{Bytes, Datetime};
 use typst::layout::PagedDocument;
@@ -45,6 +44,7 @@ struct PdfWorld {
     main_source: Source,
     sources: HashMap<FileId, Source>,
     bib_bytes: Option<Bytes>,
+    icon_bytes: Option<Bytes>,
 }
 
 impl World for PdfWorld {
@@ -68,9 +68,15 @@ impl World for PdfWorld {
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        if id.vpath().as_rooted_path().ends_with("works.bib") {
+        let path = id.vpath().as_rooted_path();
+        if path.ends_with("works.bib") {
             if let Some(ref bib) = self.bib_bytes {
                 return Ok(bib.clone());
+            }
+        }
+        if path.ends_with("icon.svg") {
+            if let Some(ref icon) = self.icon_bytes {
+                return Ok(icon.clone());
             }
         }
         Err(FileError::NotFound(PathBuf::new()))
@@ -229,11 +235,6 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
 
     // preamble
     let preamble = include_str!("../template/lib.typ");
-    let icon_data = base64::engine::general_purpose::STANDARD.encode(include_bytes!("../template/icon.svg"));
-    let preamble = preamble.replace(
-        "image(\"icon.svg\"",
-        &format!("image(\"data:image/svg+xml;base64,{}\"", icon_data),
-    );
 
     typ.push_str(&preamble);
     typ.push_str(&format!("\n#show: project.with(title: {})\n\n", quote_string(&report.title)));
@@ -282,6 +283,7 @@ pub fn compile_source_detailed(
     source: &str,
     font_paths: &[String],
     bib_source: Option<&str>,
+    icon_source: Option<&[u8]>,
 ) -> std::result::Result<Vec<u8>, Vec<SourceError>> {
     let main_id = FileId::new(None, VirtualPath::new(Path::new("/main.typ")));
     let main_source = Source::new(main_id, source.to_string());
@@ -290,6 +292,7 @@ pub fn compile_source_detailed(
 
     let (book, fonts) = load_fonts(font_paths);
     let bib_bytes = bib_source.map(|s| Bytes::new(s.as_bytes().to_vec()));
+    let icon_bytes = icon_source.map(|s| Bytes::new(s.to_vec()));
     let world = PdfWorld {
         library: LazyHash::new(typst::Library::default()),
         book,
@@ -297,6 +300,7 @@ pub fn compile_source_detailed(
         main_source,
         sources,
         bib_bytes,
+        icon_bytes,
     };
 
     let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);
