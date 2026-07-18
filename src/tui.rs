@@ -859,17 +859,21 @@ impl Component for App {
     }
 }
 
+impl App {
+    fn handle_quit(&self) -> Option<Msg> {
+        match &self.phase {
+            Phase::PdfGenerating { done, .. } if *done => Some(Msg::Quit),
+            Phase::PdfGenerating { .. } => None,
+            _ => Some(Msg::Quit),
+        }
+    }
+}
+
 impl AppComponent<Msg, NoUserEvent> for App {
     fn on(&mut self, ev: &Event<NoUserEvent>) -> Option<Msg> {
         match ev {
             Event::Keyboard(k) => match k.code {
-                Key::Char('q') | Key::Esc => {
-                    match &self.phase {
-                        Phase::PdfGenerating { done, .. } if *done => Some(Msg::Quit),
-                        Phase::PdfGenerating { .. } => None,
-                        _ => Some(Msg::Quit),
-                    }
-                }
+                Key::Char('q') | Key::Esc => self.handle_quit(),
                 Key::Enter => {
                     if let Phase::PlanReview {
                         ref mut input,
@@ -925,6 +929,9 @@ impl AppComponent<Msg, NoUserEvent> for App {
                     match c {
                         'a' | 'A' => if let Phase::PlanReview { ref mut input, .. } = self.phase { input.cursor_home(); },
                         'e' | 'E' => if let Phase::PlanReview { ref mut input, .. } = self.phase { input.cursor_end(); },
+                        'q' | 'Q' | 'c' | 'C' => {
+                            return self.handle_quit();
+                        }
                         _ => {}
                     }
                     None

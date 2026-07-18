@@ -383,8 +383,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     drop(adapter);
-
-    Ok(())
+    drop(event_tx);
+    std::process::exit(0);
 }
 
 async fn fix_typst_errors(
