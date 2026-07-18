@@ -31,10 +31,11 @@ fn bib_key(url: &str) -> String {
     }
 }
 
-fn key_map_table(sources: &[String]) -> String {
-    let mut table = String::from("\n\n引用 key 对照表（使用 @key 格式标注引用，例如 @example_report）：\nkey                    URL\n────────────────────────────────────────────────────\n");
-    for url in sources {
-        table.push_str(&format!("{:<22} {}\n", bib_key(url), url));
+fn key_map_table(entries: &[(String, String)]) -> String {
+    let mut table = String::from("\n\n引用 key 对照表（使用 @key 格式标注引用，例如 @example_report）：\nkey                    标题\n────────────────────────────────────────────────────\n");
+    for (url, title) in entries {
+        let label = if title.is_empty() { url } else { title };
+        table.push_str(&format!("{:<22} {}\n", bib_key(url), label));
     }
     table
 }
@@ -107,6 +108,8 @@ impl WriterAgent {
             .chain(new_findings.iter().flat_map(|f| f.sources.clone()))
             .collect();
 
+        let entries: Vec<(String, String)> = all_urls.iter().map(|u| (u.clone(), String::new())).collect();
+
         let user = format!(
             "研究问题：{question}
 
@@ -121,7 +124,7 @@ impl WriterAgent {
 保持报告的整体连贯性和深度。
 引用请使用 @key 格式。{key_table}",
             question = existing_report.title.replace(" - 研究报告", ""),
-            key_table = key_map_table(&all_urls)
+            key_table = key_map_table(&entries)
         );
 
         let response = self.llm.prompt(system, &user).await?;
@@ -184,6 +187,8 @@ impl WriterAgent {
             .flat_map(|ch| ch.findings.iter().flat_map(|f| f.sources.clone()))
             .collect();
 
+        let entries: Vec<(String, String)> = all_urls.iter().map(|u| (u.clone(), String::new())).collect();
+
         let user = format!(
             "研究问题：{research_question}
 
@@ -207,7 +212,7 @@ impl WriterAgent {
 确保章节之间逻辑连贯，交叉校对意见已落实。
 引用请使用 @key 格式。{key_table}",
             quality = serde_json::to_string_pretty(quality_score).unwrap_or_default(),
-            key_table = key_map_table(&all_urls)
+            key_table = key_map_table(&entries)
         );
 
         let response = self.llm.prompt(system, &user).await?;
@@ -237,11 +242,11 @@ impl WriterAgent {
         })
     }
 
-    async fn build_report_content(
+async fn build_report_content(
         &self,
         research_question: &str,
         findings: &[Finding],
-        _citation_graph: &CitationGraph,
+        citation_graph: &CitationGraph,
         quality_score: &QualityScore,
     ) -> Result<String> {
         let findings_str: String = findings
@@ -253,9 +258,10 @@ impl WriterAgent {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let all_urls: Vec<String> = findings
+        let entries: Vec<(String, String)> = citation_graph
+            .sources
             .iter()
-            .flat_map(|f| f.sources.clone())
+            .map(|s| (s.url.clone(), s.title.clone()))
             .collect();
 
         let system = "根据研究发现和引用信息，生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
@@ -280,7 +286,7 @@ impl WriterAgent {
 
 每个章节请使用 @key 格式包含内联引用。{key_table}",
             serde_json::to_string_pretty(quality_score).unwrap_or_default(),
-            key_table = key_map_table(&all_urls)
+            key_table = key_map_table(&entries)
         );
 
         self.llm.prompt(system, &user).await
