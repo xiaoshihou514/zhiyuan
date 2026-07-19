@@ -58,7 +58,7 @@
   // 底部：框架声明 + 大图标
   align(center + bottom)[
     #image("icon.svg", width: 80%) // 按需调整大小
-    #text(size: 10pt, style: "italic")[致远本地深度研究生成，内容由AI生成，请仔细甄别]
+    #text(size: 10pt, style: "italic")[致远深度研究，内容由AI生成，请仔细甄别]
   ]
 
   pagebreak()

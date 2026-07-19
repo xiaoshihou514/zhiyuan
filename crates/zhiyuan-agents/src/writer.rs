@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 use zhiyuan_core::{
     CitationGraph, Finding, LlmClient, QualityScore, ReportChapter, ReportSection, ResearchReport,
-    Result,
+    Result, SourceNode,
 };
 
 fn bib_key(url: &str) -> String {
@@ -254,6 +254,16 @@ impl WriterAgent {
         all_citations.sort();
         all_citations.dedup();
 
+        let sources: Vec<SourceNode> = all_citations
+            .iter()
+            .map(|url| SourceNode {
+                id: Uuid::new_v4(),
+                url: url.clone(),
+                title: url.clone(),
+                reliability: 0.5,
+            })
+            .collect();
+
         Ok(ResearchReport {
             query_id: Uuid::new_v4(),
             title,
@@ -264,7 +274,7 @@ impl WriterAgent {
             }],
             citation_graph: CitationGraph {
                 claims: vec![],
-                sources: vec![],
+                sources,
                 edges: vec![],
             },
             quality_score: quality_score.clone(),
