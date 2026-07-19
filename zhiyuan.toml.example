@@ -22,6 +22,6 @@ concurrency = 4
 
 [pdf]
 font_paths = [
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
 ]

@@ -387,7 +387,20 @@ impl ResearchOrchestrator {
         seen_urls: &Mutex<HashSet<String>>,
         existing_findings: &[Finding],
     ) -> Result<(Vec<Finding>, HashMap<String, String>)> {
-        let context = String::new();
+        let context: String = existing_findings
+            .iter()
+            .map(|f| f.content.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        let context = if context.len() > 1000 {
+            let mut end = 1000;
+            while !context.is_char_boundary(end) {
+                end += 1;
+            }
+            format!("{}...", &context[..end])
+        } else {
+            context
+        };
 
         let queries = self.searcher.generate_queries(task_desc, &context).await?;
         if queries.is_empty() {
