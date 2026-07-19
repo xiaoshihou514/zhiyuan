@@ -21,4 +21,7 @@ main_model = "deepseek-v4-flash"
 concurrency = 4
 
 [pdf]
-font = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+font_paths = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+]

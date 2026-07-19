@@ -230,7 +230,7 @@ pub struct ResearchConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfConfig {
-    pub font: String,
+    pub font_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

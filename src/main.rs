@@ -273,7 +273,7 @@ async fn main() -> anyhow::Result<()> {
                 if comp.take_pdf_request() {
                     if let Some(report) = comp.report().cloned() {
                         let tx = event_tx.clone();
-                        let font_paths = vec![config.pdf.font.clone()];
+                        let font_paths = config.pdf.font_paths.clone();
                         let pdf_filename = report
                             .title
                             .chars()
