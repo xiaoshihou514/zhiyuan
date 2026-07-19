@@ -114,7 +114,7 @@ impl WriterAgent {
 
         let system = "根据已有报告草稿和新的研究发现，更新和优化研究报告。
 保持结构一致性，将新信息融合到适当章节中。
-报告使用 Typst 格式，引用格式使用 @key，例如 @kpmg_report23。
+报告使用 Typst 格式，引用必须使用 @key 格式（带 @ 前缀），例如 @kpmg_report23。
 第一行用 = 号开头写上报告标题。
 
 只输出纯 Typst 正文，不要 ```typst 围栏。";
@@ -183,7 +183,7 @@ impl WriterAgent {
         quality_score: &QualityScore,
     ) -> Result<ResearchReport> {
         let system = "根据多章节大纲和各个章节的研究发现，生成完整的结构化长报告。
-报告使用 Typst 格式，引用格式使用 @key，例如 @kpmg_report23。
+报告使用 Typst 格式，引用必须使用 @key 格式（带 @ 前缀），例如 @kpmg_report23。
 第一行用 = 号开头写上报告标题。
 
 只输出纯 Typst 正文，不要 ```typst 围栏。";
@@ -305,7 +305,7 @@ impl WriterAgent {
             .collect();
 
         let system = "根据研究发现和引用信息，生成结构清晰、内容深入、有引用标注的研究报告。报告使用 Typst 格式。
-引用格式使用 @key，例如 @kpmg_report23，key 对照表见下方。
+引用必须使用 @key 格式（带 @ 前缀），例如 @kpmg_report23，key 对照表见下方。
 第一行用 = 号开头写上报告标题。
 只输出纯 Typst 正文，不要 ```typst 围栏。";
 

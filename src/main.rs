@@ -375,6 +375,7 @@ async fn main() -> anyhow::Result<()> {
                                             &source_map,
                                             &mut report,
                                             &mut fix_history,
+                                            &bib_content,
                                         )
                                         .await;
                                         if !fixed {
@@ -420,7 +421,42 @@ async fn fix_typst_errors(
     source_map: &pdf::SourceMap,
     report: &mut zhiyuan_core::ResearchReport,
     history: &mut Vec<(String, String)>,
+    bib_content: &str,
 ) -> bool {
+    let bib_keys: Vec<&str> = bib_content
+        .split("@misc{")
+        .skip(1)
+        .filter_map(|part| part.split(',').next())
+        .collect();
+
+    fn levenshtein(a: &str, b: &str) -> usize {
+        let a = a.as_bytes();
+        let b = b.as_bytes();
+        let mut prev = (0..=b.len()).collect::<Vec<_>>();
+        let mut curr = vec![0; b.len() + 1];
+        for (i, &ca) in a.iter().enumerate() {
+            curr[0] = i + 1;
+            for (j, &cb) in b.iter().enumerate() {
+                curr[j + 1] = if ca == cb {
+                    prev[j]
+                } else {
+                    1 + prev[j].min(curr[j].min(prev[j + 1]))
+                };
+            }
+            std::mem::swap(&mut prev, &mut curr);
+        }
+        prev[b.len()]
+    }
+
+    fn closest_bib_keys<'a>(bad_key: &str, keys: &[&'a str], n: usize) -> Vec<&'a str> {
+        let mut scored: Vec<(usize, &str)> = keys
+            .iter()
+            .map(|k| (levenshtein(bad_key, k), *k))
+            .collect();
+        scored.sort_by_key(|(d, _)| *d);
+        scored.into_iter().take(n).map(|(_, k)| k).collect()
+    }
+
     let mut fixed_any = false;
     for err in errors {
         if err.line == 0 {
@@ -442,12 +478,37 @@ async fn fix_typst_errors(
             continue;
         }
 
-        let system = "修复以下 Typst 段落的编译错误。只输出修复后的段落原文。";
+        let system = "\
+修复以下 Typst 段落的编译错误。只输出修复后的段落原文。
+
+如果错误是引用（@key）不存在：
+- 检查可用引用的 key 列表，使用正确的 key
+- 引用必须使用 @key 格式（带 @ 前缀）
+- 不要编造不存在的 key";
 
         let mut user = format!(
             "错误：{}（行 {}）\n\n段落原文：\n{}",
             err.message, err.line, para
         );
+
+        // 引用错误时提供最接近的 bib key 建议
+        if err.message.contains("does not exist in the document") {
+            if let Some(bad_key) = err
+                .message
+                .strip_prefix("label <")
+                .and_then(|s| s.split_once('>'))
+                .map(|(key, _)| key)
+            {
+                let closest = closest_bib_keys(bad_key, &bib_keys, 3);
+                if !closest.is_empty() {
+                    user.push_str("\n\n可用引用（works.bib 中与错误 key 最接近的匹配）：\n");
+                    for k in closest {
+                        user.push_str(&format!("  @{}\n", k));
+                    }
+                    user.push_str("\n将段落中的错误 key 替换为上面正确的 key。");
+                }
+            }
+        }
 
         for (prev_err, prev_fix) in history.iter().rev().take(3).rev() {
             user.push_str(&format!(

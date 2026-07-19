@@ -22,7 +22,7 @@
         text(size: 12pt, weight: "regular")[
           致远
           #h(1fr)
-          counter(page).get().at(0)
+          #{ counter(page).get().at(0) }
         ]
       }
     }

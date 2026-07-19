@@ -191,6 +191,12 @@ pub fn bib_key(url: &str) -> String {
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .collect();
     let slug = slug.trim_matches('-').to_lowercase();
+    const MAX_SLUG: usize = 20;
+    let slug = if slug.len() > MAX_SLUG {
+        slug[..MAX_SLUG].to_string()
+    } else {
+        slug
+    };
     if slug.is_empty() || slug.len() < 3 {
         prefix.to_string()
     } else {
