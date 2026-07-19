@@ -494,13 +494,12 @@ impl ResearchOrchestrator {
         let mut verified = Vec::new();
         let mut llm_calls = 0usize;
         for finding in findings {
-            let is_single_source = finding.sources.len() <= 1;
             let max_sim = verified
                 .iter()
                 .map(|v: &Finding| Self::text_similarity(&finding.content, &v.content))
                 .fold(0.0, f64::max);
 
-            let needs_llm = is_single_source || max_sim < 0.5;
+            let needs_llm = max_sim < 0.3;
 
             if !needs_llm {
                 verified.push(finding.clone());
@@ -512,9 +511,9 @@ impl ResearchOrchestrator {
 你是一个事实核查专家。判断以下研究发现是否准确可靠。
 
 要求：
-1. 检查是否存在事实错误或矛盾
-2. 判断是否有多个独立来源支持
-3. 如果发现包含推测或不可靠信息，应拒绝
+1. 检查是否存在明显事实错误或矛盾
+2. 如果没有明显错误，即使只有一个来源也应接受
+3. 仅当发现包含明显推测或不可靠信息时才拒绝
 
 仅回复 TRUE 或 FALSE，不要其他内容。";
 
@@ -562,14 +561,20 @@ impl ResearchOrchestrator {
         Ok(verified)
     }
 
-    /// 字符 trigram Jaccard 相似度
+    /// 词级 Jaccard 相似度（小写 + 去标点）
     fn text_similarity(a: &str, b: &str) -> f64 {
-        let trigrams_a: std::collections::HashSet<String> =
-            a.chars().collect::<Vec<_>>().windows(3).map(|w| w.iter().collect()).collect();
-        let trigrams_b: std::collections::HashSet<String> =
-            b.chars().collect::<Vec<_>>().windows(3).map(|w| w.iter().collect()).collect();
-        let intersection = trigrams_a.intersection(&trigrams_b).count();
-        let union = trigrams_a.union(&trigrams_b).count();
+        let tokenize = |s: &str| -> std::collections::HashSet<String> {
+            s.to_lowercase()
+                .split_whitespace()
+                .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+                .filter(|w| !w.is_empty())
+                .map(|w| w.to_string())
+                .collect()
+        };
+        let words_a = tokenize(a);
+        let words_b = tokenize(b);
+        let intersection = words_a.intersection(&words_b).count();
+        let union = words_a.union(&words_b).count();
         if union == 0 { 0.0 } else { intersection as f64 / union as f64 }
     }
 
@@ -579,7 +584,7 @@ impl ResearchOrchestrator {
         for nf in new_findings {
             let is_duplicate = existing
                 .iter()
-                .any(|ef| Self::text_similarity(&nf.content, &ef.content) > 0.7);
+                .any(|ef| Self::text_similarity(&nf.content, &ef.content) > 0.5);
             if is_duplicate {
                 tracing::debug!("合并重复发现: {}", nf.content.chars().take(80).collect::<String>());
             } else {
