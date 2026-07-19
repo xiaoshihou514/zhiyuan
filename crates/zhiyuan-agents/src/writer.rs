@@ -128,7 +128,15 @@ impl WriterAgent {
 
         let entries: Vec<(String, String)> = all_urls
             .iter()
-            .map(|u| (u.clone(), String::new()))
+            .map(|u| {
+                let title = citation_graph
+                    .sources
+                    .iter()
+                    .find(|s| s.url == *u)
+                    .map(|s| s.title.clone())
+                    .unwrap_or_default();
+                (u.clone(), title)
+            })
             .collect();
 
         let user = format!(
