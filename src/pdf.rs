@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -158,6 +158,53 @@ fn load_fonts(font_paths: &[String]) -> (LazyHash<FontBook>, Vec<Font>) {
                     break;
                 }
                 None => break,
+            }
+        }
+    }
+
+    // 从系统字体目录补充 Latin 字体（覆盖特殊字符如 ő）
+    let font_roots = ["/usr/share/fonts", "/usr/local/share/fonts"];
+    let mut scan_queue: Vec<PathBuf> = font_roots.iter().map(PathBuf::from).collect();
+    let mut scanned = HashSet::new();
+    while let Some(dir) = scan_queue.pop() {
+        let key = dir.to_string_lossy().to_string();
+        if !scanned.insert(key) {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                scan_queue.push(path);
+            } else {
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if ext != "ttf" && ext != "otf" && ext != "ttc" {
+                    continue;
+                }
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name.contains("CJK") || name.contains("cjk") {
+                    continue;
+                }
+                let Ok(data) = std::fs::read(&path) else {
+                    continue;
+                };
+                let bytes = Bytes::new(data);
+                for i in 0..8 {
+                    match Font::new(bytes.clone(), i) {
+                        Some(font) => {
+                            book.push(font.info().clone());
+                            fonts.push(font);
+                        }
+                        None if i == 0 => break,
+                        None => break,
+                    }
+                }
             }
         }
     }
