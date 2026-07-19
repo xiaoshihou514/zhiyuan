@@ -705,7 +705,7 @@ impl ResearchOrchestrator {
             String::new()
         };
 
-        let report = self
+        let mut report = self
             .writer
             .write_long_report(&query.query, outline, &chapters, &cross_check, quality)
             .await
@@ -729,6 +729,13 @@ impl ResearchOrchestrator {
                 quality_score: quality.clone(),
                 generated_at: chrono::Utc::now(),
             });
+
+        // 用 state.source_titles 回填可读标题
+        for source in &mut report.citation_graph.sources {
+            if let Some(title) = state.source_titles.get(&source.url) {
+                source.title = title.clone();
+            }
+        }
 
         Ok(report)
     }
