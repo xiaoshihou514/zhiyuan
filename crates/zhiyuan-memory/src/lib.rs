@@ -1,4 +1,4 @@
-use rocksdb::{DB, Options, IteratorMode};
+use rocksdb::{IteratorMode, Options, DB};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -37,7 +37,9 @@ impl WorkingMemory {
     }
 
     pub fn set(&self, key: &str, value: &str) -> Result<()> {
-        let cf = self.db.cf_handle(CF_WORKING)
+        let cf = self
+            .db
+            .cf_handle(CF_WORKING)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
         self.db
             .put_cf(&cf, key, value)
@@ -46,19 +48,26 @@ impl WorkingMemory {
     }
 
     pub fn get(&self, key: &str) -> Result<Option<String>> {
-        let cf = self.db.cf_handle(CF_WORKING)
+        let cf = self
+            .db
+            .cf_handle(CF_WORKING)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
-        let value = self.db
+        let value = self
+            .db
             .get_cf(&cf, key)
             .map_err(|e| Error::Memory(format!("WorkingMemory read failed: {e}")))?;
         Ok(value.map(|v| String::from_utf8_lossy(&v).to_string()))
     }
 
     pub fn clear(&self) -> Result<()> {
-        let cf = self.db.cf_handle(CF_WORKING)
+        let cf = self
+            .db
+            .cf_handle(CF_WORKING)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
-        let keys: Vec<Vec<u8>> = iter.filter_map(|r| r.ok().map(|(k, _)| k.to_vec())).collect();
+        let keys: Vec<Vec<u8>> = iter
+            .filter_map(|r| r.ok().map(|(k, _)| k.to_vec()))
+            .collect();
         for key in keys {
             self.db
                 .delete_cf(&cf, key)
@@ -77,8 +86,15 @@ impl EpisodicMemory {
         Self { db }
     }
 
-    pub fn store_iteration(&self, research_id: &str, iteration: usize, finding: &Finding) -> Result<()> {
-        let cf = self.db.cf_handle(CF_EPISODIC)
+    pub fn store_iteration(
+        &self,
+        research_id: &str,
+        iteration: usize,
+        finding: &Finding,
+    ) -> Result<()> {
+        let cf = self
+            .db
+            .cf_handle(CF_EPISODIC)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
         let key = format!("{research_id}:iteration:{iteration}:{}", finding.id);
         let value = serde_json::to_string(finding)?;
@@ -89,13 +105,16 @@ impl EpisodicMemory {
     }
 
     pub fn get_iteration(&self, research_id: &str, iteration: usize) -> Result<Vec<Finding>> {
-        let cf = self.db.cf_handle(CF_EPISODIC)
+        let cf = self
+            .db
+            .cf_handle(CF_EPISODIC)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
         let prefix = format!("{research_id}:iteration:{iteration}:");
         let mut findings = Vec::new();
         let iter = self.db.prefix_iterator_cf(&cf, prefix.as_bytes());
         for item in iter {
-            let (_, value) = item.map_err(|e| Error::Memory(format!("EpisodicMemory read failed: {e}")))?;
+            let (_, value) =
+                item.map_err(|e| Error::Memory(format!("EpisodicMemory read failed: {e}")))?;
             let finding: Finding = serde_json::from_slice(&value)?;
             findings.push(finding);
         }
@@ -113,7 +132,9 @@ impl SemanticMemory {
     }
 
     pub fn store_entity(&self, name: &str, entity_type: &str, relations: &[String]) -> Result<()> {
-        let cf = self.db.cf_handle(CF_SEMANTIC)
+        let cf = self
+            .db
+            .cf_handle(CF_SEMANTIC)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
         let value = serde_json::json!({
             "type": entity_type,
@@ -126,9 +147,12 @@ impl SemanticMemory {
     }
 
     pub fn get_entity(&self, name: &str) -> Result<Option<serde_json::Value>> {
-        let cf = self.db.cf_handle(CF_SEMANTIC)
+        let cf = self
+            .db
+            .cf_handle(CF_SEMANTIC)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
-        let value = self.db
+        let value = self
+            .db
             .get_cf(&cf, format!("entity:{name}"))
             .map_err(|e| Error::Memory(format!("SemanticMemory read failed: {e}")))?;
         match value {
@@ -138,17 +162,22 @@ impl SemanticMemory {
     }
 
     pub fn store_finding(&self, topic: &str, finding: &Finding) -> Result<()> {
-        let cf = self.db.cf_handle(CF_SEMANTIC)
+        let cf = self
+            .db
+            .cf_handle(CF_SEMANTIC)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
         let key = format!("finding:{topic}:{}", finding.id);
         let value = serde_json::to_string(finding)?;
-        self.db.put_cf(&cf, key.as_bytes(), value.as_bytes())
+        self.db
+            .put_cf(&cf, key.as_bytes(), value.as_bytes())
             .map_err(|e| Error::Memory(format!("SemanticMemory write failed: {e}")))?;
         Ok(())
     }
 
     pub fn find_relevant_findings(&self, query: &str) -> Result<Vec<(Finding, f64)>> {
-        let cf = self.db.cf_handle(CF_SEMANTIC)
+        let cf = self
+            .db
+            .cf_handle(CF_SEMANTIC)
             .ok_or_else(|| Error::Memory("column family not found".into()))?;
         let query_lower = query.to_lowercase();
         let query_keywords: Vec<&str> = query_lower
@@ -164,7 +193,8 @@ impl SemanticMemory {
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
 
         for item in iter {
-            let (key, value) = item.map_err(|e| Error::Memory(format!("semantic read failed: {e}")))?;
+            let (key, value) =
+                item.map_err(|e| Error::Memory(format!("semantic read failed: {e}")))?;
             let key_str = String::from_utf8_lossy(&key);
             if !key_str.starts_with("finding:") {
                 continue;

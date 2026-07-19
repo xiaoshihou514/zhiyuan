@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use crate::util::extract_json;
+use uuid::Uuid;
 use zhiyuan_core::{ExtractedContent, Finding, LlmClient, ResearchDirection, Result};
 
 pub struct SynthesizerAgent {
@@ -85,11 +85,10 @@ impl SynthesizerAgent {
 
         let response = self.llm.prompt(system, &user).await?;
         let cleaned = extract_json(&response);
-        let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or_else(|e| {
-                tracing::warn!("错误" = %e, "综合器 JSON 解析失败，使用空回退");
-                serde_json::json!({"findings": []})
-            });
+        let parsed: serde_json::Value = serde_json::from_str(cleaned).unwrap_or_else(|e| {
+            tracing::warn!("错误" = %e, "综合器 JSON 解析失败，使用空回退");
+            serde_json::json!({"findings": []})
+        });
 
         let mut findings: Vec<Finding> = parsed["findings"]
             .as_array()
@@ -100,7 +99,11 @@ impl SynthesizerAgent {
                         content: v["content"].as_str().unwrap_or("").to_string(),
                         sources: v["sources"]
                             .as_array()
-                            .map(|s| s.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                            .map(|s| {
+                                s.iter()
+                                    .filter_map(|x| x.as_str().map(String::from))
+                                    .collect()
+                            })
                             .unwrap_or_default(),
                         sub_task_id: Some(sub_task_id),
                         iteration,
@@ -146,13 +149,11 @@ impl SynthesizerAgent {
                 serde_json::from_str::<serde_json::Value>(&cleaned)
                     .ok()
                     .and_then(|v| {
-                        v["summaries"]
-                            .as_array()
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect()
-                            })
+                        v["summaries"].as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
                     })
                     .unwrap_or_default()
             }
@@ -180,13 +181,24 @@ impl SynthesizerAgent {
             for st in tasks {
                 let has_finding = current_findings.iter().any(|f| {
                     let desc_lower = st.description.to_lowercase();
-                    let words: Vec<&str> = desc_lower.split_whitespace().filter(|w| w.len() > 2).collect();
+                    let words: Vec<&str> = desc_lower
+                        .split_whitespace()
+                        .filter(|w| w.len() > 2)
+                        .collect();
                     if words.is_empty() {
                         return true;
                     }
                     words.iter().any(|w| f.content.to_lowercase().contains(w))
                 });
-                lines.push(format!("  {}: {}", st.description, if has_finding { "✅ 已有发现" } else { "❌ 未覆盖" }));
+                lines.push(format!(
+                    "  {}: {}",
+                    st.description,
+                    if has_finding {
+                        "✅ 已有发现"
+                    } else {
+                        "❌ 未覆盖"
+                    }
+                ));
             }
             format!("\n子任务覆盖情况：\n{}\n", lines.join("\n"))
         } else {
@@ -211,11 +223,10 @@ impl SynthesizerAgent {
 
         let response = self.llm.prompt(system, &user).await?;
         let cleaned = extract_json(&response);
-        let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or_else(|e| {
-                tracing::warn!("错误" = %e, "方向解析 JSON 失败，使用空回退");
-                serde_json::json!({"directions": []})
-            });
+        let parsed: serde_json::Value = serde_json::from_str(cleaned).unwrap_or_else(|e| {
+            tracing::warn!("错误" = %e, "方向解析 JSON 失败，使用空回退");
+            serde_json::json!({"directions": []})
+        });
 
         let directions: Vec<ResearchDirection> = parsed["directions"]
             .as_array()

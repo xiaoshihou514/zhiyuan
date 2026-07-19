@@ -5,17 +5,15 @@ use tuirealm::{
     event::{Event, Key, KeyModifiers, MouseEventKind, NoUserEvent},
     props::{AttrValue, Attribute, QueryResult},
     ratatui::{
-        Frame,
         layout::{Alignment, Constraint, Direction, Layout, Rect},
         style::{Color, Style, Stylize},
         text::{Line, Span},
         widgets::{Block, Borders, Gauge, Paragraph, Wrap},
+        Frame,
     },
     state::State,
 };
-use zhiyuan_core::{
-    ProgressUpdate, QualityScore, ResearchPlan, ResearchReport, SubTask,
-};
+use zhiyuan_core::{ProgressUpdate, QualityScore, ResearchPlan, ResearchReport, SubTask};
 
 #[derive(Debug, Clone, Default)]
 struct TaskStat {
@@ -68,7 +66,10 @@ struct InputBuf {
 
 impl InputBuf {
     fn new() -> Self {
-        Self { text: String::new(), cursor: 0 }
+        Self {
+            text: String::new(),
+            cursor: 0,
+        }
     }
     fn push(&mut self, c: char) {
         self.text.insert(self.cursor, c);
@@ -100,8 +101,12 @@ impl InputBuf {
             self.cursor += next.len_utf8();
         }
     }
-    fn cursor_home(&mut self) { self.cursor = 0; }
-    fn cursor_end(&mut self) { self.cursor = self.text.len(); }
+    fn cursor_home(&mut self) {
+        self.cursor = 0;
+    }
+    fn cursor_end(&mut self) {
+        self.cursor = self.text.len();
+    }
     fn cursor_char_idx(&self) -> usize {
         self.text[..self.cursor].chars().count()
     }
@@ -181,7 +186,13 @@ impl App {
             match event {
                 TuiEvent::PlanReady(new_plan) => {
                     let version = tasks_summary(&new_plan.sub_tasks);
-                    if let Phase::PlanReview { ref mut plan, ref mut versions, ref mut feedback_pending, .. } = self.phase {
+                    if let Phase::PlanReview {
+                        ref mut plan,
+                        ref mut versions,
+                        ref mut feedback_pending,
+                        ..
+                    } = self.phase
+                    {
                         versions.push(version);
                         *feedback_pending = false;
                         *plan = new_plan;
@@ -198,18 +209,31 @@ impl App {
                 TuiEvent::Progress(u) => self.handle_progress(u),
                 TuiEvent::LogLine(l) => self.add_log(l),
                 TuiEvent::TokenUsage(prompt_tok, completion_tok) => {
-                    if let Phase::Researching { ref mut tokens_in, ref mut tokens_out, .. } = self.phase {
+                    if let Phase::Researching {
+                        ref mut tokens_in,
+                        ref mut tokens_out,
+                        ..
+                    } = self.phase
+                    {
                         *tokens_in += prompt_tok;
                         *tokens_out += completion_tok;
                     }
                 }
                 TuiEvent::PdfMessage(msg) => {
-                    if let Phase::PdfGenerating { ref mut messages, .. } = self.phase {
+                    if let Phase::PdfGenerating {
+                        ref mut messages, ..
+                    } = self.phase
+                    {
                         messages.push(msg);
                     }
                 }
                 TuiEvent::PdfDone => {
-                    if let Phase::PdfGenerating { ref mut done, ref mut messages, .. } = self.phase {
+                    if let Phase::PdfGenerating {
+                        ref mut done,
+                        ref mut messages,
+                        ..
+                    } = self.phase
+                    {
                         *done = true;
                         messages.push("PDF 生成完成".into());
                     }
@@ -219,10 +243,13 @@ impl App {
     }
 
     fn start_researching(&mut self, tasks: Vec<String>) {
-        let stats = tasks.iter().map(|_| TaskStat {
-            phase: "待处理".into(),
-            ..Default::default()
-        }).collect();
+        let stats = tasks
+            .iter()
+            .map(|_| TaskStat {
+                phase: "待处理".into(),
+                ..Default::default()
+            })
+            .collect();
         self.phase = Phase::Researching {
             start_time: Instant::now(),
             iteration: 0,
@@ -244,7 +271,11 @@ impl App {
     }
 
     fn fire_research(&mut self, plan: ResearchPlan) {
-        let tasks: Vec<String> = plan.sub_tasks.iter().map(|t| t.description.clone()).collect();
+        let tasks: Vec<String> = plan
+            .sub_tasks
+            .iter()
+            .map(|t| t.description.clone())
+            .collect();
         self.plan_feedback_tx.take();
         self.start_researching(tasks);
     }
@@ -272,7 +303,10 @@ impl App {
                     }
                 }
             }
-            ProgressUpdate::Phase { name: _, message: _ } => {
+            ProgressUpdate::Phase {
+                name: _,
+                message: _,
+            } => {
                 if let Phase::Researching {
                     ref mut current_task,
                     ref tasks,
@@ -362,7 +396,11 @@ impl App {
         } = self.phase
         {
             if trimmed.contains("提取器选定URL 总数=") {
-                if let Some(n) = trimmed.rsplit('=').next().and_then(|s| s.trim().parse().ok()) {
+                if let Some(n) = trimmed
+                    .rsplit('=')
+                    .next()
+                    .and_then(|s| s.trim().parse().ok())
+                {
                     *pages_total = n;
                     if *current_task < task_stats.len() {
                         task_stats[*current_task].pages_total = n;
@@ -426,7 +464,10 @@ impl Component for App {
             Phase::Researching { iteration, .. } => {
                 let s = spinner_char.unwrap_or("⣾");
                 Line::from(vec![
-                    Span::styled(format!("── 深度研究 {}  ──  第 {} 轮  ", s, iteration), GOLD),
+                    Span::styled(
+                        format!("── 深度研究 {}  ──  第 {} 轮  ", s, iteration),
+                        GOLD,
+                    ),
                     Span::styled("──", GRAY),
                 ])
             }
@@ -439,10 +480,7 @@ impl Component for App {
             }
             Phase::Error(_) => Line::from(Span::styled("── 错误 ──", Style::new().fg(RED).bold())),
         };
-        frame.render_widget(
-            Paragraph::new(hdr).alignment(Alignment::Left),
-            chunks[0],
-        );
+        frame.render_widget(Paragraph::new(hdr).alignment(Alignment::Left), chunks[0]);
 
         // content body
         let inner = chunks[1];
@@ -456,7 +494,13 @@ impl Component for App {
                     inner,
                 );
             }
-            Phase::PlanReview { plan, input, versions, version_scroll, feedback_pending } => {
+            Phase::PlanReview {
+                plan,
+                input,
+                versions,
+                version_scroll,
+                feedback_pending,
+            } => {
                 let has_history = !versions.is_empty();
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
@@ -489,13 +533,9 @@ impl Component for App {
                     chunks[0],
                 );
 
-                let mut task_content = vec![
-                    Line::from(Span::styled("── 子任务 ──", GRAY)),
-                ];
+                let mut task_content = vec![Line::from(Span::styled("── 子任务 ──", GRAY))];
                 for t in &plan.sub_tasks {
-                    task_content.push(Line::from(
-                        Span::raw(format!("    ◆  {}", t.description)),
-                    ));
+                    task_content.push(Line::from(Span::raw(format!("    ◆  {}", t.description))));
                 }
                 frame.render_widget(Paragraph::new(task_content).fg(GRAY), chunks[1]);
 
@@ -511,26 +551,24 @@ impl Component for App {
                 );
 
                 if has_history {
-                    frame.render_widget(
-                        Paragraph::new("── 修订历史 ──").fg(GRAY),
-                        chunks[3],
-                    );
+                    frame.render_widget(Paragraph::new("── 修订历史 ──").fg(GRAY), chunks[3]);
 
                     let ver_chunk = chunks[4];
                     let height = ver_chunk.height as usize;
                     let total = versions.len();
                     let max_start = total.saturating_sub(height);
                     let start = max_start.saturating_sub(*version_scroll).min(max_start);
-                    let mut ver_lines: Vec<Line> = versions.iter().enumerate().skip(start).take(height).map(|(i, v)| {
-                        Line::from(Span::styled(
-                            format!("第 {} 版  {}", i + 1, v),
-                            GRAY,
-                        ))
-                    }).collect();
+                    let mut ver_lines: Vec<Line> = versions
+                        .iter()
+                        .enumerate()
+                        .skip(start)
+                        .take(height)
+                        .map(|(i, v)| {
+                            Line::from(Span::styled(format!("第 {} 版  {}", i + 1, v), GRAY))
+                        })
+                        .collect();
                     if *feedback_pending && start + height >= total {
-                        ver_lines.push(Line::from(
-                            Span::styled("⏳ 正在更新...", GOLD),
-                        ));
+                        ver_lines.push(Line::from(Span::styled("⏳ 正在更新...", GOLD)));
                     }
                     frame.render_widget(Paragraph::new(ver_lines), ver_chunk);
                 }
@@ -617,7 +655,8 @@ impl Component for App {
                     format!("{}s", elapsed_secs)
                 };
                 frame.render_widget(
-                    Paragraph::new(format!("{}  {}  {}", spinner, self.query_text, elapsed_str)).fg(GOLD),
+                    Paragraph::new(format!("{}  {}  {}", spinner, self.query_text, elapsed_str))
+                        .fg(GOLD),
                     chunks[0],
                 );
 
@@ -665,14 +704,21 @@ impl Component for App {
                             lines.push(Line::from(vec![
                                 Span::raw("    "),
                                 Span::styled(
-                                    format!("{}{}", "▊".repeat(bar_len), "·".repeat(6usize.saturating_sub(bar_len))),
+                                    format!(
+                                        "{}{}",
+                                        "▊".repeat(bar_len),
+                                        "·".repeat(6usize.saturating_sub(bar_len))
+                                    ),
                                     TEAL,
                                 ),
                                 Span::raw("  "),
                                 Span::styled(format!("{}", s.pages_ok), TEAL),
                                 Span::styled(format!("/{}", s.pages_ok + s.pages_fail), GRAY),
                                 Span::raw("  "),
-                                Span::styled(format!("✗{}", s.pages_fail), if s.pages_fail > 0 { RED } else { GRAY }),
+                                Span::styled(
+                                    format!("✗{}", s.pages_fail),
+                                    if s.pages_fail > 0 { RED } else { GRAY },
+                                ),
                             ]));
                             let phase_color = match s.phase.as_str() {
                                 "搜索中" | "提取中" | "综合中" => GOLD,
@@ -680,7 +726,11 @@ impl Component for App {
                                 _ => GRAY,
                             };
                             let pct_str = if s.pages_ok + s.pages_fail == 0 {
-                                if s.phase == "完成" { "  —".into() } else { "  0%".into() }
+                                if s.phase == "完成" {
+                                    "  —".into()
+                                } else {
+                                    "  0%".into()
+                                }
                             } else {
                                 format!("{:>3.0}%", ratio * 100.0)
                             };
@@ -712,7 +762,11 @@ impl Component for App {
                 fn bar8(v: f64, color: Color) -> Span<'static> {
                     let filled = (v * 8.0).round() as usize;
                     Span::styled(
-                        format!("{}{}", "█".repeat(filled), "░".repeat(8usize.saturating_sub(filled))),
+                        format!(
+                            "{}{}",
+                            "█".repeat(filled),
+                            "░".repeat(8usize.saturating_sub(filled))
+                        ),
                         Style::new().fg(color),
                     )
                 }
@@ -722,21 +776,29 @@ impl Component for App {
                 };
                 let gauge_lines = vec![
                     Line::from(vec![
-                        Span::styled("覆盖", GRAY), Span::raw(" "),
-                        Span::styled(format!("{:>3.0}%", cq * 100.0), WARM), Span::raw(" "),
+                        Span::styled("覆盖", GRAY),
+                        Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cq * 100.0), WARM),
+                        Span::raw(" "),
                         bar8(cq, TEAL),
                         Span::raw("  "),
-                        Span::styled("可靠", GRAY), Span::raw(" "),
-                        Span::styled(format!("{:>3.0}%", cr * 100.0), WARM), Span::raw(" "),
+                        Span::styled("可靠", GRAY),
+                        Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cr * 100.0), WARM),
+                        Span::raw(" "),
                         bar8(cr, TEAL),
                     ]),
                     Line::from(vec![
-                        Span::styled("深度", GRAY), Span::raw(" "),
-                        Span::styled(format!("{:>3.0}%", cd * 100.0), WARM), Span::raw(" "),
+                        Span::styled("深度", GRAY),
+                        Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cd * 100.0), WARM),
+                        Span::raw(" "),
                         bar8(cd, STEEL),
                         Span::raw("  "),
-                        Span::styled("多样", GRAY), Span::raw(" "),
-                        Span::styled(format!("{:>3.0}%", cf * 100.0), WARM), Span::raw(" "),
+                        Span::styled("多样", GRAY),
+                        Span::raw(" "),
+                        Span::styled(format!("{:>3.0}%", cf * 100.0), WARM),
+                        Span::raw(" "),
                         bar8(cf, STEEL),
                     ]),
                     Line::from(vec![
@@ -762,11 +824,17 @@ impl Component for App {
                     .skip(start)
                     .map(|l| {
                         let d: String = l.chars().take(60).collect();
-                        let color = if d.starts_with('✓') { TEAL }
-                            else if d.starts_with('✗') { RED }
-                            else if d.starts_with('→') || d.starts_with('⏭') { GOLD }
-                            else if d.starts_with('ℹ') { STEEL }
-                            else { GRAY };
+                        let color = if d.starts_with('✓') {
+                            TEAL
+                        } else if d.starts_with('✗') {
+                            RED
+                        } else if d.starts_with('→') || d.starts_with('⏭') {
+                            GOLD
+                        } else if d.starts_with('ℹ') {
+                            STEEL
+                        } else {
+                            GRAY
+                        };
                         Line::from(Span::styled(d, color))
                     })
                     .collect();
@@ -776,10 +844,18 @@ impl Component for App {
                 // 状态栏
                 fn micro_bar(ratio: f64, width: usize) -> String {
                     let filled = (ratio * width as f64).round() as usize;
-                    format!("{}{}", "▊".repeat(filled.min(width)), "·".repeat(width.saturating_sub(filled)))
+                    format!(
+                        "{}{}",
+                        "▊".repeat(filled.min(width)),
+                        "·".repeat(width.saturating_sub(filled))
+                    )
                 }
                 fn fmt_tokens(n: usize) -> String {
-                    if n >= 10000 { format!("{:.1}万", n as f64 / 10000.0) } else { n.to_string() }
+                    if n >= 10000 {
+                        format!("{:.1}万", n as f64 / 10000.0)
+                    } else {
+                        n.to_string()
+                    }
                 }
                 let pages_ratio = if *pages_ok + *pages_fail > 0 {
                     *pages_ok as f64 / (*pages_ok + *pages_fail) as f64
@@ -791,13 +867,23 @@ impl Component for App {
                     Span::raw("  "),
                     Span::styled(micro_bar(pages_ratio, 10), TEAL),
                     Span::raw("  │  "),
-                    Span::styled(format!("失败 {}", pages_fail), if *pages_fail > 0 { RED } else { GRAY }),
+                    Span::styled(
+                        format!("失败 {}", pages_fail),
+                        if *pages_fail > 0 { RED } else { GRAY },
+                    ),
                     Span::raw("  │  "),
-                    Span::styled(format!("词元 {}", fmt_tokens(*tokens_in + *tokens_out)), GRAY),
+                    Span::styled(
+                        format!("词元 {}", fmt_tokens(*tokens_in + *tokens_out)),
+                        GRAY,
+                    ),
                 ]);
                 frame.render_widget(Paragraph::new(stat_line), chunks[3]);
             }
-            Phase::PdfGenerating { messages, done, ref report } => {
+            Phase::PdfGenerating {
+                messages,
+                done,
+                ref report,
+            } => {
                 let mut lines: Vec<Line> = Vec::new();
                 let q = &report.quality_score;
                 lines.push(Line::from(vec![
@@ -824,14 +910,9 @@ impl Component for App {
                     lines.push(Line::from(Span::styled(msg.as_str(), color)));
                 }
                 if !done {
-                    lines.push(Line::from(Span::styled(
-                        "\n正在生成...",
-                        GRAY,
-                    )));
+                    lines.push(Line::from(Span::styled("\n正在生成...", GRAY)));
                 } else {
-                    lines.push(Line::from(
-                        Span::styled("\n按 q 退出", GRAY),
-                    ));
+                    lines.push(Line::from(Span::styled("\n按 q 退出", GRAY)));
                 }
                 frame.render_widget(Paragraph::new(lines), inner);
             }
@@ -883,7 +964,9 @@ impl AppComponent<Msg, NoUserEvent> for App {
                         ..
                     } = self.phase
                     {
-                        if *feedback_pending { return None; }
+                        if *feedback_pending {
+                            return None;
+                        }
                         let trimmed = input.value().trim().to_string();
                         let plan = plan.clone();
                         if trimmed.is_empty() {
@@ -928,8 +1011,16 @@ impl AppComponent<Msg, NoUserEvent> for App {
                 }
                 Key::Char(c) if k.modifiers == KeyModifiers::CONTROL => {
                     match c {
-                        'a' | 'A' => if let Phase::PlanReview { ref mut input, .. } = self.phase { input.cursor_home(); },
-                        'e' | 'E' => if let Phase::PlanReview { ref mut input, .. } = self.phase { input.cursor_end(); },
+                        'a' | 'A' => {
+                            if let Phase::PlanReview { ref mut input, .. } = self.phase {
+                                input.cursor_home();
+                            }
+                        }
+                        'e' | 'E' => {
+                            if let Phase::PlanReview { ref mut input, .. } = self.phase {
+                                input.cursor_end();
+                            }
+                        }
                         'q' | 'Q' | 'c' | 'C' => {
                             return self.handle_quit();
                         }
@@ -949,7 +1040,12 @@ impl AppComponent<Msg, NoUserEvent> for App {
                 let is_researching = matches!(self.phase, Phase::Researching { .. });
                 let is_plan_review = matches!(self.phase, Phase::PlanReview { .. });
                 if is_researching {
-                    if let Phase::Researching { ref mut log_scroll, ref log_lines, .. } = self.phase {
+                    if let Phase::Researching {
+                        ref mut log_scroll,
+                        ref log_lines,
+                        ..
+                    } = self.phase
+                    {
                         match m.kind {
                             MouseEventKind::ScrollUp => {
                                 let max_scroll = log_lines.len().saturating_sub(12);
@@ -962,7 +1058,12 @@ impl AppComponent<Msg, NoUserEvent> for App {
                         }
                     }
                 } else if is_plan_review {
-                    if let Phase::PlanReview { ref mut version_scroll, ref versions, .. } = self.phase {
+                    if let Phase::PlanReview {
+                        ref mut version_scroll,
+                        ref versions,
+                        ..
+                    } = self.phase
+                    {
                         match m.kind {
                             MouseEventKind::ScrollUp => {
                                 let max_scroll = versions.len().saturating_sub(1);

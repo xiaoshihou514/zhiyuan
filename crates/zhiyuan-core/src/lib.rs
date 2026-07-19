@@ -1,9 +1,9 @@
 mod llm;
 pub use llm::*;
 
-pub use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+pub use uuid::Uuid;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -267,9 +267,15 @@ pub struct ResearchSettings {
     pub cross_validate: bool,
 }
 
-fn default_max_iterations() -> usize { 4 }
-fn default_quality_threshold() -> f64 { 0.7 }
-fn default_concurrency() -> usize { 4 }
+fn default_max_iterations() -> usize {
+    4
+}
+fn default_quality_threshold() -> f64 {
+    0.7
+}
+fn default_concurrency() -> usize {
+    4
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProgressReport {

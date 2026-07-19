@@ -57,11 +57,15 @@ pub fn validate_json(value: &serde_json::Value, schema: &serde_json::Value) -> R
 pub struct MessageNormalizer;
 
 impl MessageNormalizer {
-    pub fn normalize_agent_output(output: &str, expected_fields: &[&str]) -> Result<serde_json::Value> {
+    pub fn normalize_agent_output(
+        output: &str,
+        expected_fields: &[&str],
+    ) -> Result<serde_json::Value> {
         let parsed: serde_json::Value = serde_json::from_str(output)
             .map_err(|e| Error::Robust(format!("Failed to parse agent output as JSON: {e}")))?;
 
-        let obj = parsed.as_object()
+        let obj = parsed
+            .as_object()
             .ok_or_else(|| Error::Robust("Agent output is not a JSON object".into()))?;
 
         for field in expected_fields {

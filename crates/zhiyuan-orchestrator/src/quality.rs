@@ -43,7 +43,10 @@ impl QualityEvaluator {
             if frags.is_empty() {
                 return 0.5;
             }
-            let covered = frags.iter().filter(|f| all_content.contains(f.as_str())).count();
+            let covered = frags
+                .iter()
+                .filter(|f| all_content.contains(f.as_str()))
+                .count();
             covered as f64 / frags.len() as f64
         }
     }
@@ -94,9 +97,19 @@ impl QualityEvaluator {
             return 0.5;
         }
 
-        let max_iter = knowledge.findings.iter().map(|f| f.iteration).max().unwrap_or(1).max(1);
+        let max_iter = knowledge
+            .findings
+            .iter()
+            .map(|f| f.iteration)
+            .max()
+            .unwrap_or(1)
+            .max(1);
         let threshold = if max_iter > 2 { max_iter - 1 } else { 0 };
-        let recent = knowledge.findings.iter().filter(|f| f.iteration >= threshold).count();
+        let recent = knowledge
+            .findings
+            .iter()
+            .filter(|f| f.iteration >= threshold)
+            .count();
         recent as f64 / knowledge.findings.len() as f64
     }
 
@@ -107,9 +120,8 @@ impl QualityEvaluator {
         }
 
         let tech_terms = [
-            "版本", "标准", "规范", "架构", "协议", "接口", "平台",
-            "API", "SDK", "协议", "框架", "引擎", "模块", "组件",
-            "配置", "部署", "集成", "测试", "认证",
+            "版本", "标准", "规范", "架构", "协议", "接口", "平台", "API", "SDK", "协议", "框架",
+            "引擎", "模块", "组件", "配置", "部署", "集成", "测试", "认证",
         ];
 
         let mut total = 0.0f64;
@@ -180,9 +192,10 @@ fn extract_fragments(context: &str) -> Vec<String> {
 
     for word in &raw {
         let chars: Vec<char> = word.chars().collect();
-        let is_cjk = chars
-            .iter()
-            .any(|c| (*c as u32 >= 0x4E00 && *c as u32 <= 0x9FFF) || (*c as u32 >= 0x3400 && *c as u32 <= 0x4DBF));
+        let is_cjk = chars.iter().any(|c| {
+            (*c as u32 >= 0x4E00 && *c as u32 <= 0x9FFF)
+                || (*c as u32 >= 0x3400 && *c as u32 <= 0x4DBF)
+        });
         if !is_cjk || chars.len() < 3 {
             continue;
         }

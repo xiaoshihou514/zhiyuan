@@ -237,7 +237,10 @@ pub fn generate_typst_source(report: &ResearchReport) -> (String, SourceMap) {
     let preamble = include_str!("../template/lib.typ");
 
     typ.push_str(&preamble);
-    typ.push_str(&format!("\n#show: project.with(title: {})\n\n", quote_string(&report.title)));
+    typ.push_str(&format!(
+        "\n#show: project.with(title: {})\n\n",
+        quote_string(&report.title)
+    ));
 
     // sections
     for (si, section) in report.sections.iter().enumerate() {

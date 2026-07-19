@@ -1,5 +1,5 @@
-mod quality;
 mod orchestrator;
+mod quality;
 
-pub use quality::*;
 pub use orchestrator::*;
+pub use quality::*;

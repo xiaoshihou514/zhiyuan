@@ -99,8 +99,7 @@ async fn main() -> anyhow::Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<TuiEvent>();
     let (research_trigger_tx, research_trigger_rx) =
         tokio::sync::oneshot::channel::<(ResearchQuery, Option<ResearchPlan>)>();
-    let (plan_feedback_tx, plan_feedback_rx) =
-        tokio::sync::mpsc::unbounded_channel::<String>();
+    let (plan_feedback_tx, plan_feedback_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     {
         let dual = std::sync::Mutex::new(DualWriter {
@@ -279,7 +278,11 @@ async fn main() -> anyhow::Result<()> {
                             .title
                             .chars()
                             .map(|c| {
-                                if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { ' ' }
+                                if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                                    c
+                                } else {
+                                    ' '
+                                }
                             })
                             .collect::<String>()
                             .split_whitespace()
@@ -304,26 +307,37 @@ async fn main() -> anyhow::Result<()> {
                                 let (source, source_map) = pdf::generate_typst_source(&report);
                                 let _ = std::fs::write(&typ_path, &source);
                                 let bib_path = session_dir.join("works.bib");
-                                let bib_content = pdf::generate_bibliography(&report.citation_graph.sources);
+                                let bib_content =
+                                    pdf::generate_bibliography(&report.citation_graph.sources);
                                 let _ = std::fs::write(&bib_path, &bib_content);
                                 let icon_path = session_dir.join("icon.svg");
-                                let _ = std::fs::write(&icon_path, include_bytes!("../template/icon.svg"));
-                                let _ = tx.send(TuiEvent::PdfMessage(
-                                    format!("✓ Typst 源码已保存到 {:?}", typ_path.file_name().unwrap_or_default())
-                                ));
+                                let _ = std::fs::write(
+                                    &icon_path,
+                                    include_bytes!("../template/icon.svg"),
+                                );
+                                let _ = tx.send(TuiEvent::PdfMessage(format!(
+                                    "✓ Typst 源码已保存到 {:?}",
+                                    typ_path.file_name().unwrap_or_default()
+                                )));
 
-                                match pdf::compile_source_detailed(&source, &font_paths, Some(&bib_content), Some(include_bytes!("../template/icon.svg"))) {
+                                match pdf::compile_source_detailed(
+                                    &source,
+                                    &font_paths,
+                                    Some(&bib_content),
+                                    Some(include_bytes!("../template/icon.svg")),
+                                ) {
                                     Ok(pdf_bytes) => {
                                         match std::fs::write(&pdf_path, &pdf_bytes) {
                                             Ok(()) => {
-                                                let _ = tx.send(TuiEvent::PdfMessage(
-                                                    format!("✓ PDF 已生成: {}", pdf_filename)
-                                                ));
+                                                let _ = tx.send(TuiEvent::PdfMessage(format!(
+                                                    "✓ PDF 已生成: {}",
+                                                    pdf_filename
+                                                )));
                                             }
                                             Err(e) => {
-                                                let _ = tx.send(TuiEvent::PdfMessage(
-                                                    format!("✗ PDF 写入失败: {e}")
-                                                ));
+                                                let _ = tx.send(TuiEvent::PdfMessage(format!(
+                                                    "✗ PDF 写入失败: {e}"
+                                                )));
                                             }
                                         }
                                         let _ = tx.send(TuiEvent::PdfDone);
@@ -333,7 +347,8 @@ async fn main() -> anyhow::Result<()> {
                                     Err(errs) => {
                                         let source_lines: Vec<&str> = source.lines().collect();
                                         for e in &errs {
-                                            let s = format!("⚠ 错误（行 {}）: {}", e.line, e.message);
+                                            let s =
+                                                format!("⚠ 错误（行 {}）: {}", e.line, e.message);
                                             let _ = tx.send(TuiEvent::PdfMessage(s));
                                             let ctx = 3;
                                             let lo = e.line.saturating_sub(ctx).max(1);
@@ -343,17 +358,25 @@ async fn main() -> anyhow::Result<()> {
                                                 let marker = if l == e.line { "→" } else { " " };
                                                 ctx_lines.push(format!(
                                                     "  {} {:>4} │ {}",
-                                                    marker, l, source_lines[l - 1]
+                                                    marker,
+                                                    l,
+                                                    source_lines[l - 1]
                                                 ));
                                             }
-                                            let _ = tx.send(TuiEvent::PdfMessage(
-                                                ctx_lines.join("\n"),
-                                            ));
+                                            let _ =
+                                                tx.send(TuiEvent::PdfMessage(ctx_lines.join("\n")));
                                         }
                                         let _ = tx.send(TuiEvent::PdfMessage(
-                                            "→ LLM 正在修复段落...".into()
+                                            "→ LLM 正在修复段落...".into(),
                                         ));
-                                        let fixed = fix_typst_errors(&*llm, &errs, &source_map, &mut report, &mut fix_history).await;
+                                        let fixed = fix_typst_errors(
+                                            &*llm,
+                                            &errs,
+                                            &source_map,
+                                            &mut report,
+                                            &mut fix_history,
+                                        )
+                                        .await;
                                         if !fixed {
                                             let _ = tx.send(TuiEvent::PdfMessage(
                                                 "✗ 无法自动修复（重试次数用尽），请手动编辑 .typ 文件".into()
@@ -362,15 +385,16 @@ async fn main() -> anyhow::Result<()> {
                                             success = true;
                                             break;
                                         }
-                                        let _ = tx.send(TuiEvent::PdfMessage(
-                                            format!("→ 第 {} 轮修复完成，重新编译...", _retry + 1)
-                                        ));
+                                        let _ = tx.send(TuiEvent::PdfMessage(format!(
+                                            "→ 第 {} 轮修复完成，重新编译...",
+                                            _retry + 1
+                                        )));
                                     }
                                 }
                             }
                             if !success {
                                 let _ = tx.send(TuiEvent::PdfMessage(
-                                    "✗ 超过最大修复次数（5次），放弃".into()
+                                    "✗ 超过最大修复次数（5次），放弃".into(),
                                 ));
                                 let _ = tx.send(TuiEvent::PdfDone);
                             }
@@ -438,10 +462,7 @@ async fn fix_typst_errors(
                 if fixed.is_empty() || fixed == para.trim() {
                     continue;
                 }
-                history.push((
-                    format!("{}（行 {}）", err.message, err.line),
-                    fixed.clone(),
-                ));
+                history.push((format!("{}（行 {}）", err.message, err.line), fixed.clone()));
                 section.content = format!(
                     "{}{}{}",
                     &section.content[..span.content_start],
@@ -479,8 +500,8 @@ fn load_config() -> anyhow::Result<ResearchConfig> {
     let config_str = std::fs::read_to_string(&config_path)
         .map_err(|e| anyhow::anyhow!("读取配置文件失败 {}: {e}", config_path.display()))?;
 
-    let config: ResearchConfig = toml::from_str(&config_str)
-        .map_err(|e| anyhow::anyhow!("解析配置文件失败: {e}"))?;
+    let config: ResearchConfig =
+        toml::from_str(&config_str).map_err(|e| anyhow::anyhow!("解析配置文件失败: {e}"))?;
 
     Ok(config)
 }

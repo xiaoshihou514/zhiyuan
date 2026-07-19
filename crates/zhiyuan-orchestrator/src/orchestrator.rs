@@ -1,6 +1,6 @@
+use futures::future::join_all;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use futures::future::join_all;
 use tokio::sync::Semaphore;
 use zhiyuan_agents::*;
 use zhiyuan_core::*;
@@ -114,10 +114,10 @@ impl ResearchOrchestrator {
         }
 
         let mut state = IterationState {
-            findings: existing_findings.into_iter().map(|(f, _)| Finding {
-                iteration: 0,
-                ..f
-            }).collect(),
+            findings: existing_findings
+                .into_iter()
+                .map(|(f, _)| Finding { iteration: 0, ..f })
+                .collect(),
             citation_graph: CitationGraph {
                 claims: vec![],
                 sources: vec![],
@@ -148,7 +148,13 @@ impl ResearchOrchestrator {
             }
 
             let (new_findings, new_titles) = self
-                .execute_tasks_concurrently(&tasks, iteration, &semaphore, &seen_urls, &state.findings)
+                .execute_tasks_concurrently(
+                    &tasks,
+                    iteration,
+                    &semaphore,
+                    &seen_urls,
+                    &state.findings,
+                )
                 .await;
             state.source_titles.extend(new_titles);
 
@@ -177,9 +183,12 @@ impl ResearchOrchestrator {
                 findings: state.findings.clone(),
             };
             tracing::info!("开始质量评估");
-            let quality = self
-                .quality_evaluator
-                .evaluate(&knowledge, &query.full_query(), &plan, &state.citation_graph);
+            let quality = self.quality_evaluator.evaluate(
+                &knowledge,
+                &query.full_query(),
+                &plan,
+                &state.citation_graph,
+            );
             tracing::info!(
                 "总分" = %quality.overall,
                 "覆盖" = %quality.coverage,
@@ -222,13 +231,7 @@ impl ResearchOrchestrator {
                 }
             }
 
-            let report = self
-                .build_or_update_report(
-                    &state,
-                    &quality,
-                    &query,
-                )
-                .await;
+            let report = self.build_or_update_report(&state, &quality, &query).await;
             state.report = Some(report);
 
             self.save_to_memory(
@@ -268,7 +271,8 @@ impl ResearchOrchestrator {
         });
 
         let report = if self.config.long_report && plan.outline.is_some() {
-            self.build_long_report(&query, &state, &quality, &plan).await?
+            self.build_long_report(&query, &state, &quality, &plan)
+                .await?
         } else {
             match state.report {
                 Some(existing) => self
@@ -278,13 +282,21 @@ impl ResearchOrchestrator {
                     .unwrap_or(existing),
                 None => {
                     self.writer
-                        .write_report(&query.query, &state.findings, &state.citation_graph, &quality)
+                        .write_report(
+                            &query.query,
+                            &state.findings,
+                            &state.citation_graph,
+                            &quality,
+                        )
                         .await?
                 }
             }
         };
 
-        self.save_to_memory("report", &serde_json::to_string(&report).unwrap_or_default());
+        self.save_to_memory(
+            "report",
+            &serde_json::to_string(&report).unwrap_or_default(),
+        );
 
         self.report(ProgressUpdate::Report(report.clone()));
 
@@ -377,10 +389,7 @@ impl ResearchOrchestrator {
     ) -> Result<(Vec<Finding>, HashMap<String, String>)> {
         let context = String::new();
 
-        let queries = self
-            .searcher
-            .generate_queries(task_desc, &context)
-            .await?;
+        let queries = self.searcher.generate_queries(task_desc, &context).await?;
         if queries.is_empty() {
             return Ok((vec![], HashMap::new()));
         }
@@ -392,7 +401,12 @@ impl ResearchOrchestrator {
 
         let search_results = self
             .searcher
-            .execute_search(&queries, 5, self.config.concurrency, self.config.cross_validate)
+            .execute_search(
+                &queries,
+                5,
+                self.config.concurrency,
+                self.config.cross_validate,
+            )
             .await?;
 
         let search_results = {
@@ -411,7 +425,10 @@ impl ResearchOrchestrator {
             phase: "提取中".into(),
         });
 
-        let extracted = self.extractor_agent.extract_content(&search_results, task_desc).await?;
+        let extracted = self
+            .extractor_agent
+            .extract_content(&search_results, task_desc)
+            .await?;
 
         let source_titles: HashMap<String, String> = extracted
             .iter()
@@ -470,7 +487,11 @@ impl ResearchOrchestrator {
                 f.sources.iter().map(|url| SourceNode {
                     id: Uuid::new_v4(),
                     url: url.clone(),
-                    title: state.source_titles.get(url).cloned().unwrap_or_else(|| url.clone()),
+                    title: state
+                        .source_titles
+                        .get(url)
+                        .cloned()
+                        .unwrap_or_else(|| url.clone()),
                     reliability: 0.5,
                 })
             })
@@ -580,7 +601,11 @@ impl ResearchOrchestrator {
         let words_b = tokenize(b);
         let intersection = words_a.intersection(&words_b).count();
         let union = words_a.union(&words_b).count();
-        if union == 0 { 0.0 } else { intersection as f64 / union as f64 }
+        if union == 0 {
+            0.0
+        } else {
+            intersection as f64 / union as f64
+        }
     }
 
     /// 合并相似发现，返回本轮新增的新颖发现数
@@ -591,14 +616,21 @@ impl ResearchOrchestrator {
                 .iter()
                 .any(|ef| Self::text_similarity(&nf.content, &ef.content) > 0.5);
             if is_duplicate {
-                tracing::debug!("合并重复发现: {}", nf.content.chars().take(80).collect::<String>());
+                tracing::debug!(
+                    "合并重复发现: {}",
+                    nf.content.chars().take(80).collect::<String>()
+                );
             } else {
                 novel += 1;
                 existing.push(nf.clone());
             }
         }
         if novel < new_findings.len() {
-            tracing::info!("{} 个新发现中 {} 个与已有发现重复", new_findings.len(), new_findings.len() - novel);
+            tracing::info!(
+                "{} 个新发现中 {} 个与已有发现重复",
+                new_findings.len(),
+                new_findings.len() - novel
+            );
         }
         novel
     }
@@ -654,7 +686,12 @@ impl ResearchOrchestrator {
             tracing::warn!("大纲无章节，降级为简单报告");
             return self
                 .writer
-                .write_report(&query.query, &state.findings, &state.citation_graph, quality)
+                .write_report(
+                    &query.query,
+                    &state.findings,
+                    &state.citation_graph,
+                    quality,
+                )
                 .await;
         }
 
@@ -742,7 +779,11 @@ impl ResearchOrchestrator {
                         .filter_map(|item| {
                             let fi = item["finding_index"].as_i64()? as usize;
                             let ci = item["chapter_index"].as_i64()?;
-                            if ci >= 0 { Some((fi, ci as usize)) } else { None }
+                            if ci >= 0 {
+                                Some((fi, ci as usize))
+                            } else {
+                                None
+                            }
                         })
                         .collect::<Vec<_>>()
                 })
@@ -813,10 +854,7 @@ impl ResearchOrchestrator {
 {chapters_str}"
         );
 
-        self.llm
-            .prompt(system, &user)
-            .await
-            .unwrap_or_default()
+        self.llm.prompt(system, &user).await.unwrap_or_default()
     }
 
     fn save_to_memory(&self, key: &str, value: &str) {

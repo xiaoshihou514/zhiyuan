@@ -1,5 +1,7 @@
 use crate::util::extract_json;
-use zhiyuan_core::{sub_task_from_value, LlmClient, ResearchPlan, ResearchQuery, ResearchSettings, Result};
+use zhiyuan_core::{
+    sub_task_from_value, LlmClient, ResearchPlan, ResearchQuery, ResearchSettings, Result,
+};
 
 pub struct PlannerAgent {
     llm: Box<dyn LlmClient>,
@@ -21,13 +23,23 @@ impl PlannerAgent {
         );
 
         let response = self.llm.prompt(system, &user).await?;
-        Ok(response.lines().filter(|l| !l.is_empty() && l.len() > 5).map(|l| {
-            l.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ')' || c == ' ' || c == '\t')
+        Ok(response
+            .lines()
+            .filter(|l| !l.is_empty() && l.len() > 5)
+            .map(|l| {
+                l.trim_start_matches(|c: char| {
+                    c.is_ascii_digit() || c == '.' || c == ')' || c == ' ' || c == '\t'
+                })
                 .to_string()
-        }).collect())
+            })
+            .collect())
     }
 
-    pub async fn create_plan(&self, query: &ResearchQuery, settings: &ResearchSettings) -> Result<ResearchPlan> {
+    pub async fn create_plan(
+        &self,
+        query: &ResearchQuery,
+        settings: &ResearchSettings,
+    ) -> Result<ResearchPlan> {
         if settings.long_report {
             self.create_long_plan(query, settings).await
         } else {
@@ -50,10 +62,12 @@ impl PlannerAgent {
         let response = self.llm.prompt(system, &user).await?;
         tracing::debug!(response_len = %response.len(), "规划器短报告响应");
         let cleaned = extract_json(&response);
-        let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .map_err(|e| zhiyuan_core::Error::Agent(
-                format!("解析规划输出失败: {e}\n原始响应(前200字符): {}", response.chars().take(200).collect::<String>())
-            ))?;
+        let parsed: serde_json::Value = serde_json::from_str(cleaned).map_err(|e| {
+            zhiyuan_core::Error::Agent(format!(
+                "解析规划输出失败: {e}\n原始响应(前200字符): {}",
+                response.chars().take(200).collect::<String>()
+            ))
+        })?;
 
         let tasks = sub_task_from_value(&parsed);
 
@@ -64,7 +78,11 @@ impl PlannerAgent {
         })
     }
 
-    async fn create_long_plan(&self, query: &ResearchQuery, _settings: &ResearchSettings) -> Result<ResearchPlan> {
+    async fn create_long_plan(
+        &self,
+        query: &ResearchQuery,
+        _settings: &ResearchSettings,
+    ) -> Result<ResearchPlan> {
         let system = "你是一个研究规划和报告结构专家。你的任务是根据用户的研究问题，生成多章节的研究计划和大纲。\
 每个章节应该覆盖一个独立的子主题，所有章节合起来形成完整的研究报告。\
 只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
@@ -89,24 +107,24 @@ impl PlannerAgent {
         let response = self.llm.prompt(system, &user).await?;
         tracing::debug!(response_len = %response.len(), "规划器长报告响应");
         let cleaned = extract_json(&response);
-        let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .map_err(|e| zhiyuan_core::Error::Agent(
-                format!("解析长报告规划输出失败: {e}\n原始响应(前200字符): {}", response.chars().take(200).collect::<String>())
-            ))?;
+        let parsed: serde_json::Value = serde_json::from_str(cleaned).map_err(|e| {
+            zhiyuan_core::Error::Agent(format!(
+                "解析长报告规划输出失败: {e}\n原始响应(前200字符): {}",
+                response.chars().take(200).collect::<String>()
+            ))
+        })?;
 
         let tasks = sub_task_from_value(&parsed);
-        let outline = parsed["outline"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .map(|v| {
-                        let title = v["title"].as_str().unwrap_or("").to_string();
-                        let desc = v["description"].as_str().unwrap_or("").to_string();
-                        format!("# {title}\n{desc}")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n\n")
-            });
+        let outline = parsed["outline"].as_array().map(|arr| {
+            arr.iter()
+                .map(|v| {
+                    let title = v["title"].as_str().unwrap_or("").to_string();
+                    let desc = v["description"].as_str().unwrap_or("").to_string();
+                    format!("# {title}\n{desc}")
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        });
 
         Ok(ResearchPlan {
             query_id: query.id,

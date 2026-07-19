@@ -46,18 +46,31 @@ impl WebExtractor {
         let mut readable = Readability::new(html, Some(url), Some(cfg)).ok()?;
         let article = readable.parse().ok()?;
         let text = article.text_content.to_string();
-        if text.trim().is_empty() { None } else { Some(text) }
+        if text.trim().is_empty() {
+            None
+        } else {
+            Some(text)
+        }
     }
 
     fn legacy_extract(&self, html: &str) -> String {
-        let re_block = regex_lite::Regex::new(r"(?is)<(script|style|noscript|iframe)[^>]*>.*?</(?:script|style|noscript|iframe)>").unwrap();
+        let re_block = regex_lite::Regex::new(
+            r"(?is)<(script|style|noscript|iframe)[^>]*>.*?</(?:script|style|noscript|iframe)>",
+        )
+        .unwrap();
         let html = re_block.replace_all(html, "");
         let re_tag = regex_lite::Regex::new(r"<[^>]*>").unwrap();
         let text = re_tag.replace_all(&html, " ");
 
         let garbage = [
-            ".css-", "g-recaptcha", "elementor", "grecaptcha", "recaptcha",
-            "Skip to main content", "document.", "window.",
+            ".css-",
+            "g-recaptcha",
+            "elementor",
+            "grecaptcha",
+            "recaptcha",
+            "Skip to main content",
+            "document.",
+            "window.",
         ];
         let sentences: String = text
             .split(|c: char| c == '。' || c == '.' || c == '！' || c == '?')
@@ -82,14 +95,14 @@ impl WebExtractor {
     fn relevance_score(&self, text: &str, context: &str) -> f64 {
         let text_lower = text.to_lowercase();
         let context_lower = context.to_lowercase();
-        let keywords: Vec<&str> = context_lower.split_whitespace().filter(|w| w.len() > 3).collect();
+        let keywords: Vec<&str> = context_lower
+            .split_whitespace()
+            .filter(|w| w.len() > 3)
+            .collect();
         if keywords.is_empty() {
             return 0.5;
         }
-        let matches = keywords
-            .iter()
-            .filter(|k| text_lower.contains(*k))
-            .count();
+        let matches = keywords.iter().filter(|k| text_lower.contains(*k)).count();
         matches as f64 / keywords.len() as f64
     }
 
@@ -155,32 +168,38 @@ impl ContentExtractor for WebExtractor {
         let url_lower = result.url.to_lowercase();
         let is_pdf = url_lower.ends_with(".pdf");
 
-        let text = if is_pdf {
-            self.extract_pdf(&result.url).await?
-        } else {
-            let resp = self.client.get(&result.url).send().await
-                .map_err(|e| Error::Extract(format!("Failed to fetch {}: {e}", result.url)))?;
-            let status = resp.status();
-            if !status.is_success() {
-                return Err(Error::Extract(format!("HTTP {status} for {}", result.url)));
-            }
-            let content_type = resp.headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-
-            if content_type.contains("pdf") && !is_pdf {
-                drop(resp);
-                self.extract_pdf(&result.url).await?
-            } else if is_pdf {
-                drop(resp);
+        let text =
+            if is_pdf {
                 self.extract_pdf(&result.url).await?
             } else {
-                let html = resp.text().await
-                    .map_err(|e| Error::Extract(format!("Failed to read body: {e}")))?;
-                self.extract_main_content(&html, &result.url)
-            }
-        };
+                let resp =
+                    self.client.get(&result.url).send().await.map_err(|e| {
+                        Error::Extract(format!("Failed to fetch {}: {e}", result.url))
+                    })?;
+                let status = resp.status();
+                if !status.is_success() {
+                    return Err(Error::Extract(format!("HTTP {status} for {}", result.url)));
+                }
+                let content_type = resp
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+
+                if content_type.contains("pdf") && !is_pdf {
+                    drop(resp);
+                    self.extract_pdf(&result.url).await?
+                } else if is_pdf {
+                    drop(resp);
+                    self.extract_pdf(&result.url).await?
+                } else {
+                    let html = resp
+                        .text()
+                        .await
+                        .map_err(|e| Error::Extract(format!("Failed to read body: {e}")))?;
+                    self.extract_main_content(&html, &result.url)
+                }
+            };
 
         // 写入缓存
         if let Ok(mut cache) = self.cache.lock() {
@@ -280,7 +299,13 @@ mod tests {
 </body></html>";
         let result = e.extract_main_content(html, "https://example.com");
         assert!(result.contains("真实文章"), "正文应保留，结果: {result}");
-        assert!(!result.contains("function"), "JS 应被完整移除，结果: {result}");
-        assert!(!result.contains("您的浏览器"), "noscript 应被移除，结果: {result}");
+        assert!(
+            !result.contains("function"),
+            "JS 应被完整移除，结果: {result}"
+        );
+        assert!(
+            !result.contains("您的浏览器"),
+            "noscript 应被移除，结果: {result}"
+        );
     }
 }

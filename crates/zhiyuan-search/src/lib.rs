@@ -108,9 +108,10 @@ impl EnginePool {
     }
 
     pub fn from_config(config: &zhiyuan_core::SearchConfig) -> Self {
-        let engines: Vec<Box<dyn SearchEngine>> = vec![
-            Box::new(SearXngEngine::new(&config.searxng_url, config.max_results)),
-        ];
+        let engines: Vec<Box<dyn SearchEngine>> = vec![Box::new(SearXngEngine::new(
+            &config.searxng_url,
+            config.max_results,
+        ))];
         Self::new(engines)
     }
 
@@ -136,9 +137,8 @@ impl EnginePool {
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| {
-            zhiyuan_core::Error::Search("all search engines failed".into())
-        }))
+        Err(last_err
+            .unwrap_or_else(|| zhiyuan_core::Error::Search("all search engines failed".into())))
     }
 
     pub fn engine_count(&self) -> usize {
@@ -165,23 +165,42 @@ impl EnginePool {
                         let key = normalize_url(&r.url);
                         match seen.get_mut(&key) {
                             Some((_, engines)) => engines.push(engine_name.to_string()),
-                            None => { seen.insert(key, (r.clone(), vec![engine_name.to_string()])); }
+                            None => {
+                                seen.insert(key, (r.clone(), vec![engine_name.to_string()]));
+                            }
                         }
                     }
                 }
                 Ok(_) => tracing::warn!("引擎" = %self.engines[i].name(), "跨引擎搜索返回空"),
-                Err(e) => tracing::warn!("引擎" = %self.engines[i].name(), "错误" = %e, "跨引擎搜索失败"),
+                Err(e) => {
+                    tracing::warn!("引擎" = %self.engines[i].name(), "错误" = %e, "跨引擎搜索失败")
+                }
             }
         }
 
-        let mut all_results: Vec<SearchResult> = seen.into_iter()
-            .map(|(_url, (mut result, engines))| { result.source = engines.join(","); result })
+        let mut all_results: Vec<SearchResult> = seen
+            .into_iter()
+            .map(|(_url, (mut result, engines))| {
+                result.source = engines.join(",");
+                result
+            })
             .collect();
-        all_results.sort_by(|a, b| b.source.matches(',').count().cmp(&a.source.matches(',').count()));
+        all_results.sort_by(|a, b| {
+            b.source
+                .matches(',')
+                .count()
+                .cmp(&a.source.matches(',').count())
+        });
 
-        tracing::info!("引擎数" = engine_count, "总结果" = all_results.len(), "跨引擎搜索完成");
+        tracing::info!(
+            "引擎数" = engine_count,
+            "总结果" = all_results.len(),
+            "跨引擎搜索完成"
+        );
         if all_results.is_empty() {
-            return Err(zhiyuan_core::Error::Search("all engines returned no results".into()));
+            return Err(zhiyuan_core::Error::Search(
+                "all engines returned no results".into(),
+            ));
         }
         Ok(all_results)
     }
@@ -207,30 +226,53 @@ fn extract_keywords(query: &str) -> Vec<String> {
                 words.push(std::mem::take(&mut current));
             }
         }
-        if !c.is_whitespace() { current.push(c); }
-        else if !current.is_empty() { words.push(std::mem::take(&mut current)); }
-        if c.is_ascii_alphanumeric() || c.is_alphabetic() { prev_ascii = Some(is_ascii); }
+        if !c.is_whitespace() {
+            current.push(c);
+        } else if !current.is_empty() {
+            words.push(std::mem::take(&mut current));
+        }
+        if c.is_ascii_alphanumeric() || c.is_alphabetic() {
+            prev_ascii = Some(is_ascii);
+        }
     }
-    if !current.is_empty() { words.push(current); }
-    words.into_iter().filter(|w| w.chars().count() > 2).collect()
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+        .into_iter()
+        .filter(|w| w.chars().count() > 2)
+        .collect()
 }
 
-    fn filter_relevant(query: &str, results: Vec<SearchResult>) -> Vec<SearchResult> {
-        let keywords: Vec<String> = extract_keywords(query).into_iter().map(|w| w.to_lowercase()).collect();
-        if keywords.is_empty() { return results; }
-        let fallback = results.clone();
-        let filtered: Vec<_> = results.into_iter()
-            .filter(|r| {
-                let text = format!("{} {}", r.title, r.snippet).to_lowercase();
-                keywords.iter().any(|k| text.contains(k))
-            })
-            .collect();
-        if filtered.is_empty() { fallback } else { filtered }
+fn filter_relevant(query: &str, results: Vec<SearchResult>) -> Vec<SearchResult> {
+    let keywords: Vec<String> = extract_keywords(query)
+        .into_iter()
+        .map(|w| w.to_lowercase())
+        .collect();
+    if keywords.is_empty() {
+        return results;
     }
+    let fallback = results.clone();
+    let filtered: Vec<_> = results
+        .into_iter()
+        .filter(|r| {
+            let text = format!("{} {}", r.title, r.snippet).to_lowercase();
+            keywords.iter().any(|k| text.contains(k))
+        })
+        .collect();
+    if filtered.is_empty() {
+        fallback
+    } else {
+        filtered
+    }
+}
 
 fn dedup_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
     let mut seen = std::collections::HashSet::new();
-    results.into_iter().filter(|r| seen.insert(normalize_url(&r.url))).collect()
+    results
+        .into_iter()
+        .filter(|r| seen.insert(normalize_url(&r.url)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -239,8 +281,11 @@ mod tests {
 
     fn make_result(title: &str) -> SearchResult {
         SearchResult {
-            title: title.into(), url: "https://example.com".into(),
-            snippet: "".into(), source: "searxng/test".into(), fetch_time: chrono::Utc::now(),
+            title: title.into(),
+            url: "https://example.com".into(),
+            snippet: "".into(),
+            source: "searxng/test".into(),
+            fetch_time: chrono::Utc::now(),
         }
     }
 
@@ -250,11 +295,17 @@ mod tests {
     }
     #[test]
     fn test_normalize_url_removes_fragment() {
-        assert_eq!(normalize_url("https://example.com/page#section"), "https://example.com/page");
+        assert_eq!(
+            normalize_url("https://example.com/page#section"),
+            "https://example.com/page"
+        );
     }
     #[test]
     fn test_normalize_url_lowercases() {
-        assert_eq!(normalize_url("HTTPS://EXAMPLE.COM/Path"), "https://example.com/path");
+        assert_eq!(
+            normalize_url("HTTPS://EXAMPLE.COM/Path"),
+            "https://example.com/path"
+        );
     }
     #[test]
     fn test_normalize_url_handles_mixed() {
@@ -263,14 +314,18 @@ mod tests {
 
     #[test]
     fn test_dedup_removes_duplicates() {
-        let mut r1 = make_result("1"); r1.url = "https://a.com/page".into();
-        let mut r2 = make_result("2"); r2.url = "https://A.COM/page/".into();
+        let mut r1 = make_result("1");
+        r1.url = "https://a.com/page".into();
+        let mut r2 = make_result("2");
+        r2.url = "https://A.COM/page/".into();
         assert_eq!(dedup_results(vec![r1, r2]).len(), 1);
     }
     #[test]
     fn test_dedup_preserves_unique() {
-        let mut r1 = make_result("1"); r1.url = "https://a.com/one".into();
-        let mut r2 = make_result("2"); r2.url = "https://b.com/two".into();
+        let mut r1 = make_result("1");
+        r1.url = "https://a.com/one".into();
+        let mut r2 = make_result("2");
+        r2.url = "https://b.com/two".into();
         assert_eq!(dedup_results(vec![r1, r2]).len(), 2);
     }
     #[test]
@@ -287,12 +342,15 @@ mod tests {
     }
     #[test]
     fn test_filter_keeps_relevant_generic() {
-        let filtered = filter_relevant("汽车嵌入式 AUTOSAR 软件平台 调研", vec![
-            make_result("国产AUTOSAR工具链的技术亮点与实际应用 - 知乎"),
-            make_result("AUTOSAR CP三大工具链全景对比 - 知乎"),
-            make_result("AUTOSAR基础软件选型指南"),
-            make_result("汽车电子AUTOSAR架构深度解析"),
-        ]);
+        let filtered = filter_relevant(
+            "汽车嵌入式 AUTOSAR 软件平台 调研",
+            vec![
+                make_result("国产AUTOSAR工具链的技术亮点与实际应用 - 知乎"),
+                make_result("AUTOSAR CP三大工具链全景对比 - 知乎"),
+                make_result("AUTOSAR基础软件选型指南"),
+                make_result("汽车电子AUTOSAR架构深度解析"),
+            ],
+        );
         assert_eq!(filtered.len(), 4, "含 AUTOSAR 的结果应全部保留");
     }
     #[test]
@@ -306,7 +364,10 @@ mod tests {
         let filtered = filter_relevant("汽车电子 AUTOSAR 供应商 对比", results);
         assert_eq!(filtered.len(), 2);
         for r in &filtered {
-            assert!(r.title.contains("Vector") || r.title.contains("Acsia"), "只应保留 AUTOSAR 结果");
+            assert!(
+                r.title.contains("Vector") || r.title.contains("Acsia"),
+                "只应保留 AUTOSAR 结果"
+            );
         }
     }
     #[test]

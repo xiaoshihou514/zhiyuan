@@ -88,7 +88,10 @@ impl LlmClient for OpenaiLlm {
     async fn prompt(&self, system: &str, user: &str) -> Result<String> {
         let cache_key = Self::cache_key(system, user);
         if let Some(cached) = self.cache_get(&cache_key) {
-            tracing::info!("LLM 缓存命中 ({})", cached.chars().take(50).collect::<String>());
+            tracing::info!(
+                "LLM 缓存命中 ({})",
+                cached.chars().take(50).collect::<String>()
+            );
             return Ok(cached);
         }
 
@@ -145,7 +148,10 @@ impl LlmClient for OpenaiLlm {
                             {
                                 self.cache_set(cache_key, content.clone());
                                 let truncated: String = content.chars().take(500).collect();
-                                self.log(&format!("[{now}] RESPONSE({} chars): {truncated}", content.len()));
+                                self.log(&format!(
+                                    "[{now}] RESPONSE({} chars): {truncated}",
+                                    content.len()
+                                ));
                                 if prompt_tok > 0 || completion_tok > 0 {
                                     if let Some(ref tx) = self.token_tx {
                                         let _ = tx.send((prompt_tok, completion_tok));

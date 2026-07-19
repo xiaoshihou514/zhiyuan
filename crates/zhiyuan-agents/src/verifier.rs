@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use crate::util::extract_json;
+use uuid::Uuid;
 use zhiyuan_core::{CitationEdge, CitationGraph, Claim, LlmClient, Result, SourceNode};
 
 pub struct VerifierAgent {
@@ -11,9 +11,17 @@ impl VerifierAgent {
         Self { llm }
     }
 
-    pub async fn verify_claims(&self, claims: &[Claim], sources: &[SourceNode]) -> Result<CitationGraph> {
+    pub async fn verify_claims(
+        &self,
+        claims: &[Claim],
+        sources: &[SourceNode],
+    ) -> Result<CitationGraph> {
         if !claims.is_empty() && !sources.is_empty() {
-            tracing::info!("开始验证（{} 个声明，{} 个来源）", claims.len(), sources.len());
+            tracing::info!(
+                "开始验证（{} 个声明，{} 个来源）",
+                claims.len(),
+                sources.len()
+            );
         }
         let claims_str: String = claims
             .iter()
@@ -47,23 +55,32 @@ impl VerifierAgent {
 
         let response = self.llm.prompt(system, &user).await?;
         let cleaned = extract_json(&response);
-        let parsed: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or_else(|e| {
-                tracing::warn!("错误" = %e, "验证器 JSON 解析失败，使用空回退");
-                serde_json::json!({"edges": []})
-            });
+        let parsed: serde_json::Value = serde_json::from_str(cleaned).unwrap_or_else(|e| {
+            tracing::warn!("错误" = %e, "验证器 JSON 解析失败，使用空回退");
+            serde_json::json!({"edges": []})
+        });
 
         let edges: Vec<CitationEdge> = parsed["edges"]
             .as_array()
             .map(|arr| {
                 arr.iter()
                     .filter_map(|v| {
-                        let claim_id = v["claim_id"].as_str().and_then(|s| Uuid::parse_str(s).ok())?;
-                        let source_id = v["source_id"].as_str().and_then(|s| Uuid::parse_str(s).ok())?;
+                        let claim_id = v["claim_id"]
+                            .as_str()
+                            .and_then(|s| Uuid::parse_str(s).ok())?;
+                        let source_id = v["source_id"]
+                            .as_str()
+                            .and_then(|s| Uuid::parse_str(s).ok())?;
                         let relation = v["relation"].as_str()?;
                         match relation {
-                            "supports" => Some(CitationEdge::Supports { claim_id, source_id }),
-                            "contradicts" => Some(CitationEdge::Contradicts { claim_id, source_id }),
+                            "supports" => Some(CitationEdge::Supports {
+                                claim_id,
+                                source_id,
+                            }),
+                            "contradicts" => Some(CitationEdge::Contradicts {
+                                claim_id,
+                                source_id,
+                            }),
                             _ => None,
                         }
                     })

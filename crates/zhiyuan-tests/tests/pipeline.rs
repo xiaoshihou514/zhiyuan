@@ -38,7 +38,11 @@ where
     }
 
     for (i, r) in results.iter().enumerate() {
-        println!("[{name}][{i}] {} — {}", r.title, r.url.chars().take(100).collect::<String>());
+        println!(
+            "[{name}][{i}] {} — {}",
+            r.title,
+            r.url.chars().take(100).collect::<String>()
+        );
     }
 
     let n = results.len();
@@ -53,9 +57,17 @@ where
     for result in results.iter().take(3) {
         match extractor.extract(result, context).await {
             Ok(content) => {
-                if content.text.is_empty() { continue; }
-                if content.text.len() <= 50 { continue; }
-                println!("  ✓ 提取成功: {} 字符, 关联度 {:.2}", content.text.len(), content.relevance_score);
+                if content.text.is_empty() {
+                    continue;
+                }
+                if content.text.len() <= 50 {
+                    continue;
+                }
+                println!(
+                    "  ✓ 提取成功: {} 字符, 关联度 {:.2}",
+                    content.text.len(),
+                    content.relevance_score
+                );
                 ok += 1;
             }
             Err(e) => println!("  ✗ 提取失败: {e}"),

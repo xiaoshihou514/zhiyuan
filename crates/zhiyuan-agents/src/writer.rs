@@ -1,6 +1,9 @@
 use chrono::Utc;
 use uuid::Uuid;
-use zhiyuan_core::{CitationGraph, Finding, LlmClient, QualityScore, ReportChapter, ReportSection, ResearchReport, Result};
+use zhiyuan_core::{
+    CitationGraph, Finding, LlmClient, QualityScore, ReportChapter, ReportSection, ResearchReport,
+    Result,
+};
 
 fn bib_key(url: &str) -> String {
     let url = url
@@ -68,7 +71,9 @@ impl WriterAgent {
         citation_graph: &CitationGraph,
         quality_score: &QualityScore,
     ) -> Result<ResearchReport> {
-        let (title, content) = self.build_report_content(research_question, findings, citation_graph, quality_score).await?;
+        let (title, content) = self
+            .build_report_content(research_question, findings, citation_graph, quality_score)
+            .await?;
 
         Ok(ResearchReport {
             query_id: Uuid::new_v4(),
@@ -121,7 +126,10 @@ impl WriterAgent {
             .chain(new_findings.iter().flat_map(|f| f.sources.clone()))
             .collect();
 
-        let entries: Vec<(String, String)> = all_urls.iter().map(|u| (u.clone(), String::new())).collect();
+        let entries: Vec<(String, String)> = all_urls
+            .iter()
+            .map(|u| (u.clone(), String::new()))
+            .collect();
 
         let user = format!(
             "研究问题：{question}
@@ -192,7 +200,10 @@ impl WriterAgent {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                    format!("= {}\n{}\n\n研究发现：\n{}", ch.title, ch.description, findings_str)
+                format!(
+                    "= {}\n{}\n\n研究发现：\n{}",
+                    ch.title, ch.description, findings_str
+                )
             })
             .collect::<Vec<_>>()
             .join("\n\n");
@@ -202,7 +213,10 @@ impl WriterAgent {
             .flat_map(|ch| ch.findings.iter().flat_map(|f| f.sources.clone()))
             .collect();
 
-        let entries: Vec<(String, String)> = all_urls.iter().map(|u| (u.clone(), String::new())).collect();
+        let entries: Vec<(String, String)> = all_urls
+            .iter()
+            .map(|u| (u.clone(), String::new()))
+            .collect();
 
         let user = format!(
             "研究问题：{research_question}
@@ -258,7 +272,7 @@ impl WriterAgent {
         })
     }
 
-async fn build_report_content(
+    async fn build_report_content(
         &self,
         research_question: &str,
         findings: &[Finding],
