@@ -252,7 +252,8 @@ impl App {
     fn handle_progress(&mut self, update: ProgressUpdate) {
         match update {
             ProgressUpdate::Started {
-                max_iterations: mi, ..
+                max_iterations: mi,
+                tasks,
             } => {
                 if let Phase::Researching {
                     ref mut max_iterations,
@@ -261,7 +262,7 @@ impl App {
                 {
                     *max_iterations = mi;
                 } else {
-                    self.start_researching(Vec::new());
+                    self.start_researching(tasks);
                     if let Phase::Researching {
                         ref mut max_iterations,
                         ..

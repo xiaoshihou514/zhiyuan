@@ -190,7 +190,7 @@ pub struct ReportSection {
 pub enum ProgressUpdate {
     Started {
         max_iterations: usize,
-        total_tasks: usize,
+        tasks: Vec<String>,
     },
     Phase {
         name: String,

@@ -93,9 +93,14 @@ impl ResearchOrchestrator {
         };
         tracing::info!("任务" = %plan.sub_tasks.len(), "研究计划已生成");
         self.save_to_memory("plan", &serde_json::to_string(&plan).unwrap_or_default());
+        let task_descriptions: Vec<String> = plan
+            .sub_tasks
+            .iter()
+            .map(|t| t.description.clone())
+            .collect();
         self.report(ProgressUpdate::Started {
             max_iterations: self.config.max_iterations,
-            total_tasks: plan.sub_tasks.len(),
+            tasks: task_descriptions,
         });
 
         let existing_findings = self
