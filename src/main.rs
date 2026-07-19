@@ -449,6 +449,7 @@ async fn fix_typst_errors(
                     &section.content[span.content_end..]
                 );
                 fixed_any = true;
+                break;
             }
             Err(e) => {
                 eprintln!("  ⚠️ LLM 修复段落失败: {e}");
