@@ -303,9 +303,10 @@ async fn main() -> anyhow::Result<()> {
                             let tx = tx;
                             let mut report = report;
                             let mut fix_history: Vec<(String, String)> = Vec::new();
-                            let mut success = false;
+                            let mut last_error_count = usize::MAX;
+                            let mut fix_count = 0usize;
 
-                            for _retry in 0..5 {
+                            loop {
                                 let (source, source_map) = pdf::generate_typst_source(&report);
                                 let _ = std::fs::write(&typ_path, &source);
                                 let bib_path = session_dir.join("works.bib");
@@ -343,10 +344,17 @@ async fn main() -> anyhow::Result<()> {
                                             }
                                         }
                                         let _ = tx.send(TuiEvent::PdfDone);
-                                        success = true;
                                         break;
                                     }
                                     Err(errs) => {
+                                        if errs.len() >= last_error_count {
+                                            let _ = tx.send(TuiEvent::PdfMessage(
+                                                "✗ 无法自动修复（错误未减少），请手动编辑 .typ 文件".into()
+                                            ));
+                                            let _ = tx.send(TuiEvent::PdfDone);
+                                            break;
+                                        }
+                                        last_error_count = errs.len();
                                         let source_lines: Vec<&str> = source.lines().collect();
                                         for e in &errs {
                                             let s =
@@ -382,24 +390,18 @@ async fn main() -> anyhow::Result<()> {
                                         .await;
                                         if !fixed {
                                             let _ = tx.send(TuiEvent::PdfMessage(
-                                                "✗ 无法自动修复（重试次数用尽），请手动编辑 .typ 文件".into()
+                                                "✗ LLM 修复无变化，停止修复".into()
                                             ));
                                             let _ = tx.send(TuiEvent::PdfDone);
-                                            success = true;
                                             break;
                                         }
+                                        fix_count += 1;
                                         let _ = tx.send(TuiEvent::PdfMessage(format!(
                                             "→ 第 {} 轮修复完成，重新编译...",
-                                            _retry + 1
+                                            fix_count
                                         )));
                                     }
                                 }
-                            }
-                            if !success {
-                                let _ = tx.send(TuiEvent::PdfMessage(
-                                    "✗ 超过最大修复次数（5次），放弃".into(),
-                                ));
-                                let _ = tx.send(TuiEvent::PdfDone);
                             }
                         });
                     }
