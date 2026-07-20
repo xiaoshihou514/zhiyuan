@@ -250,7 +250,7 @@ dependencies = [
  "num-traits",
  "pastey",
  "rayon",
- "thiserror 2.0.18",
+ "thiserror",
  "v_frame",
  "y4m",
 ]
@@ -718,7 +718,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fa961b519f0b462e3a3b4a34b64d119eeaca1d59af726fe450bbba07a9fc0a1"
 dependencies = [
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -1158,7 +1158,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -1312,7 +1312,7 @@ dependencies = [
  "once_cell",
  "phf 0.13.1",
  "tendril",
- "thiserror 2.0.18",
+ "thiserror",
  "unicode-segmentation",
 ]
 
@@ -1966,7 +1966,7 @@ dependencies = [
  "roman-numerals-rs",
  "serde",
  "serde_yaml",
- "thiserror 2.0.18",
+ "thiserror",
  "unic-langid",
  "unicode-segmentation",
  "unscanny",
@@ -2083,7 +2083,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "ureq",
  "windows-sys 0.60.2",
 ]
@@ -2811,7 +2811,7 @@ checksum = "bde5057d6143cc94e861d90f591b9303d6716c6b9602309150bd068853c10899"
 dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -3495,7 +3495,7 @@ dependencies = [
  "quick-xml 0.41.0",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "zip",
 ]
 
@@ -3574,37 +3574,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "opentelemetry"
-version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab70038c28ed37b97d8ed414b6429d343a8bbf44c9f79ec854f3a643029ba6d7"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "pin-project-lite",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "231e9d6ceef9b0b2546ddf52335785ce41252bc7474ee8ba05bfad277be13ab8"
-dependencies = [
- "async-trait",
- "futures-channel",
- "futures-executor",
- "futures-util",
- "glob",
- "opentelemetry",
- "percent-encoding",
- "rand 0.8.7",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3755,7 +3724,7 @@ dependencies = [
  "stringprep",
  "subsetter",
  "taffy",
- "thiserror 2.0.18",
+ "thiserror",
  "ttf-parser",
  "unicode-bidi",
  "unicode-linebreak",
@@ -4233,7 +4202,7 @@ dependencies = [
  "palette",
  "serde",
  "strum 0.28.0",
- "thiserror 2.0.18",
+ "thiserror",
  "unicode-segmentation",
  "unicode-truncate 2.0.1",
  "unicode-width 0.2.2",
@@ -4301,7 +4270,7 @@ dependencies = [
  "rand 0.9.5",
  "rand_chacha 0.9.0",
  "simd_helpers",
- "thiserror 2.0.18",
+ "thiserror",
  "v_frame",
  "wasm-bindgen",
 ]
@@ -4410,7 +4379,7 @@ checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]
@@ -5232,7 +5201,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "walkdir",
  "yaml-rust",
 ]
@@ -5304,12 +5273,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "textdistance"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa672c55ab69f787dbc9126cc387dbe57fdd595f585e4524cf89018fa44ab819"
-
-[[package]]
 name = "thin-vec"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5317,31 +5280,11 @@ checksum = "b0f7e269b48f0a7dd0146680fa24b50cc67fc0373f086a5b2f99bd084639b482"
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl 2.0.18",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -5500,7 +5443,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spm_precompiled",
- "thiserror 2.0.18",
+ "thiserror",
  "unicode-normalization-alignments",
  "unicode-segmentation",
  "unicode_categories",
@@ -5672,7 +5615,7 @@ checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
  "symlink",
- "thiserror 2.0.18",
+ "thiserror",
  "time",
  "tracing-subscriber",
 ]
@@ -5707,24 +5650,6 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
-dependencies = [
- "js-sys",
- "once_cell",
- "opentelemetry",
- "opentelemetry_sdk",
- "smallvec",
- "tracing",
- "tracing-core",
- "tracing-log",
- "tracing-subscriber",
- "web-time",
 ]
 
 [[package]]
@@ -5771,7 +5696,7 @@ dependencies = [
  "dyn-clone",
  "lazy-regex",
  "ratatui 0.30.2",
- "thiserror 2.0.18",
+ "thiserror",
  "tuirealm_derive",
 ]
 
@@ -7142,7 +7067,6 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-appender",
- "tracing-opentelemetry",
  "tracing-subscriber",
  "tuirealm",
  "typst",
@@ -7165,14 +7089,11 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
  "zhiyuan-core",
  "zhiyuan-extract",
- "zhiyuan-memory",
- "zhiyuan-robust",
  "zhiyuan-search",
 ]
 
@@ -7184,7 +7105,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "uuid",
 ]
 
@@ -7198,7 +7119,7 @@ dependencies = [
  "instant-distance",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "tokio",
  "tracing",
  "uuid",
@@ -7215,9 +7136,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "tempfile",
- "textdistance",
- "thiserror 2.0.18",
+ "thiserror",
  "tokio",
  "tracing",
  "zhiyuan-core",
@@ -7231,7 +7150,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "tracing",
  "uuid",
  "zhiyuan-core",
@@ -7241,12 +7160,10 @@ dependencies = [
 name = "zhiyuan-orchestrator"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "futures",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
@@ -7255,7 +7172,6 @@ dependencies = [
  "zhiyuan-embedding",
  "zhiyuan-extract",
  "zhiyuan-memory",
- "zhiyuan-robust",
  "zhiyuan-search",
 ]
 
@@ -7267,7 +7183,7 @@ dependencies = [
  "jsonschema",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "tokio",
  "tracing",
  "zhiyuan-core",
@@ -7283,7 +7199,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror",
  "tokio",
  "tracing",
  "zhiyuan-core",
