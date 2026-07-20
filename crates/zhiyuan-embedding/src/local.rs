@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use sha2::{Digest, Sha256};
+use std::io::Write;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing;
 
@@ -64,6 +66,19 @@ impl LocalEmbedder {
     /// 此函数使用 reqwest（浏览器兼容性更好的 HTTP 库，自动读取 HTTP_PROXY/HTTPS_PROXY 环境变量）
     /// 预先将模型文件下载到缓存中，然后 fastembed 可以直接从缓存加载而无需走 hf-hub 下载路径。
     fn predownload_model(model_name: Option<&str>, cache_dir: &std::path::Path) -> Result<(), EmbeddingError> {
+        // 在 tokio 上下文中用 block_on 执行异步下载
+        let handle = match tokio::runtime::Handle::try_current() {
+            Ok(h) => h,
+            Err(_) => return Err(EmbeddingError {
+                message: "无法获取 tokio runtime".into(),
+                kind: EmbeddingErrorKind::NotAvailable,
+            }),
+        };
+        handle.block_on(Self::predownload_model_async(model_name, cache_dir))
+    }
+
+    /// predownload_model 的异步实现
+    async fn predownload_model_async(model_name: Option<&str>, cache_dir: &std::path::Path) -> Result<(), EmbeddingError> {
         let (repo_id, model_file, _dim) = match model_name {
             Some("bge-large-zh") | None => ("Xenova/bge-large-zh-v1.5", "onnx/model.onnx", 1024),
             Some("bge-small-zh") => ("Xenova/bge-small-zh-v1.5", "onnx/model.onnx", 512),
@@ -93,11 +108,10 @@ impl LocalEmbedder {
         let endpoint = std::env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://huggingface.co".to_string());
         let model_url = format!("{endpoint}/{repo_id}/resolve/main/{model_file}");
 
-        let client = reqwest::blocking::Client::builder()
+        let client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
-            .timeout(std::time::Duration::from_secs(300)) // 5 分钟总超时
-            .connect_timeout(std::time::Duration::from_secs(30)) // 连接超时 30 秒
-            // 自动读取 HTTP_PROXY / HTTPS_PROXY / NO_PROXY 环境变量
+            .timeout(Duration::from_secs(300)) // 5 分钟总超时
+            .connect_timeout(Duration::from_secs(30)) // 连接超时 30 秒
             .build()
             .map_err(|e| EmbeddingError {
                 message: format!("创建 HTTP 客户端失败: {e}"),
@@ -105,7 +119,7 @@ impl LocalEmbedder {
             })?;
 
         // 先 HEAD 获取 commit hash 和文件大小
-        let head_resp = client.head(&model_url).send().map_err(|e| EmbeddingError {
+        let head_resp = client.head(&model_url).send().await.map_err(|e| EmbeddingError {
             message: format!("请求模型元数据失败（请检查代理/网络）: {e}"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
@@ -137,7 +151,7 @@ impl LocalEmbedder {
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
 
-        let mut response = client.get(&model_url).send().map_err(|e| EmbeddingError {
+        let mut response = client.get(&model_url).send().await.map_err(|e| EmbeddingError {
             message: format!("下载模型文件失败: {e}"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
@@ -148,21 +162,16 @@ impl LocalEmbedder {
         })?;
         let mut downloaded: u64 = 0;
         let mut last_log = std::time::Instant::now();
-        loop {
-            let mut buf = [0u8; 65536]; // 64KB buffer
-            let n = std::io::Read::read(&mut response, &mut buf).map_err(|e| EmbeddingError {
-                message: format!("读取下载流失败: {e}"),
-                kind: EmbeddingErrorKind::ModelLoad,
-            })?;
-            if n == 0 {
-                break;
-            }
-            downloaded += n as u64;
-            std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| EmbeddingError {
+        while let Some(chunk) = response.chunk().await.map_err(|e| EmbeddingError {
+            message: format!("读取下载流失败: {e}"),
+            kind: EmbeddingErrorKind::ModelLoad,
+        })? {
+            downloaded += chunk.len() as u64;
+            file.write_all(&chunk).map_err(|e| EmbeddingError {
                 message: format!("写入文件失败: {e}"),
                 kind: EmbeddingErrorKind::ModelLoad,
             })?;
-            if last_log.elapsed() >= std::time::Duration::from_secs(5) {
+            if last_log.elapsed() >= Duration::from_secs(5) {
                 let pct = if file_size > 0 {
                     downloaded as f64 / file_size as f64 * 100.0
                 } else {
