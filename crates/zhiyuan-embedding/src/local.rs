@@ -34,6 +34,19 @@ impl LocalEmbedder {
             .map(|h| std::path::PathBuf::from(h).join(".cache").join("zhiyuan").join("embedding"))
             .unwrap_or_else(|_| std::path::PathBuf::from(".fastembed_cache"));
 
+        let result = Self::try_load(model_name, cache_dir.clone());
+        match result {
+            Ok(embedder) => return Ok(embedder),
+            Err(_) => {
+                // 加载失败，清理不完整缓存后重试一次
+                tracing::warn!("embedding 模型加载失败，清理缓存后重试...");
+                let _ = std::fs::remove_dir_all(&cache_dir);
+                Self::try_load(model_name, cache_dir)
+            }
+        }
+    }
+
+    fn try_load(model_name: Option<&str>, cache_dir: std::path::PathBuf) -> Result<Self, EmbeddingError> {
         let (model, dim, label) = match model_name {
             Some("bge-large-zh") | None => {
                 let m = TextEmbedding::try_new(
