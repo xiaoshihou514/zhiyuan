@@ -42,7 +42,7 @@ impl SearchEngine for SearXngEngine {
             .query(&[
                 ("q", &query.query),
                 ("format", &"json".to_string()),
-                ("categories", &"general".to_string()),
+                ("categories", &query.categories),
                 ("language", &"all".to_string()),
                 ("safesearch", &"0".to_string()),
             ])
@@ -249,21 +249,43 @@ fn filter_relevant(query: &str, results: Vec<SearchResult>) -> Vec<SearchResult>
         .into_iter()
         .map(|w| w.to_lowercase())
         .collect();
-    if keywords.is_empty() {
+    if keywords.is_empty() || results.is_empty() {
         return results;
     }
-    let fallback = results.clone();
-    let filtered: Vec<_> = results
-        .into_iter()
-        .filter(|r| {
-            let text = format!("{} {}", r.title, r.snippet).to_lowercase();
-            keywords.iter().any(|k| text.contains(k))
-        })
+
+    // 计算每条结果的关键词匹配率
+    let compute_ratio = |title: &str, snippet: &str| -> f64 {
+        let text = format!("{} {}", title, snippet).to_lowercase();
+        let matches = keywords
+            .iter()
+            .filter(|k| text.contains(k.as_str()))
+            .count();
+        matches as f64 / keywords.len() as f64
+    };
+
+    // 第一遍：用 30% 阈值
+    let threshold = 0.3;
+    let passed: Vec<SearchResult> = results
+        .iter()
+        .filter(|r| compute_ratio(&r.title, &r.snippet) >= threshold)
+        .cloned()
         .collect();
-    if filtered.is_empty() {
-        fallback
+
+    if passed.len() >= 3 {
+        return passed;
+    }
+
+    // 通过太少，降级到 20% 阈值
+    let lower_threshold = 0.2;
+    let downgraded: Vec<SearchResult> = results
+        .into_iter()
+        .filter(|r| compute_ratio(&r.title, &r.snippet) >= lower_threshold)
+        .collect();
+
+    if downgraded.is_empty() {
+        passed // 降级后还为空，返回第一遍的结果（可能<3但不会全回退）
     } else {
-        filtered
+        downgraded
     }
 }
 

@@ -5,6 +5,8 @@ use zhiyuan_extract::ContentExtractor;
 pub struct ExtractorAgent {
     extractor: Arc<dyn ContentExtractor + Send + Sync>,
     blocked_domains: Vec<String>,
+    /// 每个子任务最多提取的 URL 数
+    max_extract_per_task: usize,
 }
 
 impl ExtractorAgent {
@@ -15,6 +17,7 @@ impl ExtractorAgent {
         Self {
             extractor,
             blocked_domains,
+            max_extract_per_task: 10,
         }
     }
 
@@ -104,6 +107,19 @@ impl ExtractorAgent {
         frags
     }
 
+    /// 综合优先级评分：搜索结果标题/摘要与任务描述片段的匹配密度
+    fn result_priority_score(result: &SearchResult, fragments: &[String]) -> f64 {
+        if fragments.is_empty() {
+            return 0.5;
+        }
+        let text = format!("{} {}", result.title, result.snippet).to_lowercase();
+        let match_count = fragments
+            .iter()
+            .filter(|f| text.contains(f.as_str()))
+            .count();
+        match_count as f64 / fragments.len() as f64
+    }
+
     fn is_relevant(&self, result: &SearchResult, context: &str) -> bool {
         let text = format!("{} {}", result.title, result.snippet).to_lowercase();
         let fragments = Self::extract_fragments(context);
@@ -118,12 +134,34 @@ impl ExtractorAgent {
         results: &[SearchResult],
         context: &str,
     ) -> Result<Vec<ExtractedContent>> {
-        let targets: Vec<&SearchResult> = results
+        // 1. 过滤被屏蔽域名和完全不相关的结果
+        let fragments = Self::extract_fragments(context);
+        let candidates: Vec<&SearchResult> = results
             .iter()
             .filter(|r| !self.is_blocked(&r.url) && self.is_relevant(r, context))
             .collect();
 
-        tracing::info!("总数" = %targets.len(), "提取器选定URL");
+        // 2. 按综合优先级评分排序，取 Top-N
+        let mut scored: Vec<(f64, &SearchResult)> = candidates
+            .into_iter()
+            .map(|r| {
+                let score = Self::result_priority_score(r, &fragments);
+                (score, r)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        let targets: Vec<&SearchResult> = scored
+            .into_iter()
+            .take(self.max_extract_per_task)
+            .map(|(_, r)| r)
+            .collect();
+
+        tracing::info!(
+            "总数" = %targets.len(),
+            "上限" = %self.max_extract_per_task,
+            "提取器选定URL（按优先级排序）"
+        );
 
         if !targets.is_empty() {
             tracing::info!("开始内容提取");

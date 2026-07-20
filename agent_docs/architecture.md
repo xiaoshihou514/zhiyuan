@@ -2,72 +2,94 @@
 
 ## 项目概述
 
-致远是一个基于 Rust 生态的深度研究（Deep Research）框架，实现质量驱动的自适应迭代研究流程，支持多种搜索引擎和 LLM 后端。
+致远是一个基于 Rust 生态的深度研究（Deep Research）框架，实现迭代式自适应研究流程，通过 LLM 驱动的研究智能体组合，完成从问题理解到报告生成的完整闭环。不依赖第三方 Agent 框架（如 rig），所有智能体直接通过 `LlmClient` trait 调用 LLM。
 
 ## 三层架构
 
 ```
-┌─────────────────────────────────────────────────┐
-│  编排层 (Orchestration Layer)                     │
-│  Research Orchestrator | Quality Evaluator       │
-│  Cost Controller | Progress Tracker              │
-├─────────────────────────────────────────────────┤
-│  智能体层 (Agent Layer)                           │
-│  Planner | Searcher | Extractor                  │
-│  Synthesizer | Verifier | Writer                 │
-│  (基于 rig Agent + Tool 系统)                     │
-├─────────────────────────────────────────────────┤
-│  基础层 (Foundation Layer)                        │
-│  Model Router | Tool Registry                    │
-│  Memory Manager (RocksDB) | Message Normalizer   │
-│  Retry & Fault Isolation                         │
-└─────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────┐
+│  编排层 (Orchestration Layer)                      │
+│  ResearchOrchestrator | QualityEvaluator           │
+│  迭代控制 | 任务并发调度 | 渐进式报告构建          │
+├───────────────────────────────────────────────────┤
+│  智能体层 (Agent Layer) — 7 个 LLM 驱动 Agent      │
+│  Planner | QueryPlanner | Searcher                │
+│  ExtractorAgent | Synthesizer | Verifier | Writer  │
+│  (全部通过 LlmClient::prompt() 直接调用 LLM)       │
+├───────────────────────────────────────────────────┤
+│  基础层 (Foundation Layer)                         │
+│  EnginePool (SearXNG) | WebExtractor | MemoryMgr   │
+│  LlmClient | Retry/Timeout | JSON 规范化           │
+└───────────────────────────────────────────────────┘
 ```
 
-## 六阶段流程
+## Crate 依赖关系（DAG）
 
 ```
-用户查询
-    ↓
-┌──────────────────────┐
-│ 阶段一：意图理解与规划  │  Planner Agent → 研究计划 + 子任务图
-│  (可选澄清)           │  Quality Evaluator → 初始质量评分
-└──────────┬───────────┘
-           ↓
-┌──────────────────────┐
-│ 阶段二：信息检索       │  Searcher Agent → 三引擎并行/故障切换
-│ 阶段三：内容提取       │  Extractor Agent → 针对性信息提取
-│ 阶段四：信息综合       │  Synthesizer Agent → 三层记忆更新
-│ 阶段五：迭代深化       │  Verifier → 交叉验证
-│  (质量驱动循环)        │  Quality Evaluator → 评分决策
-│                      │  评分 < 阈值 → 继续迭代
-│                      │  评分 ≥ 阈值 → 进入生成
-└──────────┬───────────┘
-           ↓
-┌──────────────────────┐
-│ 阶段六：报告生成       │  Writer Agent → 渐进式构建
-│  (渐进式)             │  Verifier → 最终事实核查
-└──────────┬───────────┘
-           ↓
-     最终研究报告 (含引用图 + 质量评分)
+                  ┌──────────────┐
+                  │  zhiyuan-core │ ← 核心类型、trait、错误枚举
+                  └──────┬───────┘
+         ┌───────────────┼───────────────────┐
+         ▼               ▼                   ▼
+  zhiyuan-search  zhiyuan-extract    zhiyuan-memory
+  (SearXNG 引擎)   (网页/PDF 提取)    (RocksDB 3 列族)
+         │               │                   │
+         └───────────────┼───────────────────┘
+                         ▼
+                  zhiyuan-robust
+              (重试/超时/JSON 验证)
+                         │
+                         ▼
+                  zhiyuan-agents
+          (7 个 Agent，调用 LlmClient)
+                         │
+                         ▼
+              zhiyuan-orchestrator
+           (编排 + 质量评估 + 迭代控制)
 ```
 
-## 核心创新点
+| Crate | 职责 | 关键依赖 |
+|-------|------|---------|
+| `zhiyuan-core` | 核心类型 (`ResearchQuery`, `Finding`, `CitationGraph` 等)、`LlmClient` trait、`ResearchConfig`、错误枚举 | serde, thiserror, uuid |
+| `zhiyuan-search` | `EnginePool` + `SearXngEngine`，搜索去重+相关度过滤 | reqwest, serde |
+| `zhiyuan-extract` | `WebExtractor`：dom_smoothie(Readability) → Markdown，PDF(pdf_oxide)，URL 缓存 | dom_smoothie, pdf_oxide |
+| `zhiyuan-memory` | `MemoryManager`：RocksDB 三列族 (working/episodic/semantic) | rocksdb, serde |
+| `zhiyuan-robust` | `with_retry()` 指数退避、`with_timeout()`、`MessageNormalizer` JSON 校验 | tokio, backoff |
+| `zhiyuan-agents` | 7 个 Agent（`PlannerAgent`, `QueryPlannerAgent`, `SearcherAgent`, `ExtractorAgent`, `SynthesizerAgent`, `VerifierAgent`, `WriterAgent`） | zhiyan-core, zhiyuan-search, zhiyuan-extract |
+| `zhiyuan-orchestrator` | `ResearchOrchestrator` 主循环 + `QualityEvaluator` 四维评分 | zhiyuan-agents, zhiyuan-memory |
 
-1. **质量驱动的自适应迭代** — 四维质量评分（覆盖度/可靠性/新鲜度/深度）驱动迭代终止
-2. **三层记忆架构** — 工作记忆 / 情节记忆 (RocksDB) / 语义记忆 (RocksDB + 向量)
-3. **引用图与交叉验证** — petgraph 二部图 + 多源验证
-4. **渐进式报告生成** — 每轮迭代更新报告草稿
-5. **成本感知路由** — 任务复杂度 → 自动选择模型层级
+## 二进制入口 (`src/main.rs`)
 
-## Crate 设计
+- CLI 解析 → 生成 session hash → 加载配置 → 创建 EnginePool + LLM Client
+- **澄清阶段**：PlannerAgent 生成 2-4 个澄清问题，TUI 交互收集用户反馈
+- **研究阶段**：ResearchOrchestrator::research() 迭代运行
+- **PDF 生成**：使用 `typst` + `typst-pdf` crate 编译 Typst 源码（内置 CJK 字体加载 + LLM 修复错误，最多 5 轮）
 
-| Crate                  | 职责                           | 关键依赖         |
-| ---------------------- | ------------------------------ | ---------------- |
-| `zhiyuan-core`         | 核心类型、trait、错误          | serde, thiserror |
-| `zhiyuan-search`       | 搜索引擎抽象 (Bing/DDG/Google) | reqwest, scraper |
-| `zhiyuan-extract`      | 网页内容提取                   | scraper, reqwest |
-| `zhiyuan-memory`       | 三层记忆 (RocksDB)             | rocksdb, serde   |
-| `zhiyuan-orchestrator` | 编排层、质量评估               | petgraph, rig    |
-| `zhiyuan-agents`       | 六类智能体                     | rig, zhiyuan-*   |
-| `zhiyuan-robust`       | 重试、规范化、故障隔离         | tokio, backoff   |
+## 配置系统 (`zhiyuan.toml`)
+
+查找顺序：`~/.config/zhiyuan.toml` → `./zhiyuan.toml`。各节：
+
+| 节 | 键 | 默认值 | 说明 |
+|----|----|--------|------|
+| `[search]` | `max_results` | 10 | 每引擎结果数 |
+| | `searxng_url` | `http://localhost:8888` | SearXNG 实例地址 |
+| | `blocked_domains` | `[]` | 屏蔽域名 |
+| `[llm]` | `api_key` | `""` | OpenAI 兼容 API key |
+| | `base_url` | `https://api.deepseek.com/v1` | API 端点 |
+| | `main_model` | `deepseek-v4-flash` | 模型名 |
+| `[research]` | `concurrency` | 4 | 并发数 |
+| | `max_iterations` | 4 | 最大迭代轮次 |
+| | `long_report` | false | 长报告模式 |
+| | `cross_validate` | false | 交叉验证 |
+| `[pdf]` | `font_paths` | `[]` | Typst 字体路径 |
+
+## 目录结构
+
+| 路径 | 用途 |
+|------|------|
+| `~/.config/zhiyuan.toml` 或 `./zhiyuan.toml` | 应用配置 |
+| `.env` | 可选 dotenv |
+| `~/.cache/zhiyuan/<query_hash>/` | RocksDB 记忆存储 |
+| `~/.local/share/zhiyuan/<hash>.log` | tracing 日志 |
+| `template/lib.typ` | Typst 模板 |
+| `template/icon.svg` | 水墨风封面图标 |

@@ -22,16 +22,16 @@ impl SearcherAgent {
         &self,
         task_description: &str,
         context: &str,
-    ) -> Result<Vec<String>> {
+    ) -> Result<(String, Vec<String>)> {
         match self
             .query_planner
             .plan_queries(task_description, context)
             .await
         {
-            Ok(q) => Ok(q),
+            Ok((categories, queries)) => Ok((categories, queries)),
             Err(e) => {
                 tracing::warn!("搜索查询生成失败: {e}，降级使用任务描述作为搜索词");
-                Ok(vec![task_description.to_string()])
+                Ok(("general".to_string(), vec![task_description.to_string()]))
             }
         }
     }
@@ -42,16 +42,18 @@ impl SearcherAgent {
         max_results: usize,
         concurrency: usize,
         cross_validate: bool,
+        categories: &str,
     ) -> Result<Vec<SearchResult>> {
         let semaphore = Arc::new(Semaphore::new(concurrency));
         let mut handles = Vec::new();
 
-        tracing::info!("查询数" = %queries.len(), "模式" = if cross_validate { "cross-validate" } else { "fallback" }, "正在执行搜索");
+        tracing::info!("查询数" = %queries.len(), "类别" = categories, "模式" = if cross_validate { "cross-validate" } else { "fallback" }, "正在执行搜索");
 
         for query_str in queries {
             let permit = semaphore.clone().acquire_owned().await.unwrap();
             let engine = self.engine_pool.clone();
             let q = query_str.clone();
+            let cats = categories.to_string();
 
             handles.push(tokio::spawn(async move {
                 let _permit = permit;
@@ -60,6 +62,7 @@ impl SearcherAgent {
                     max_results,
                     region: None,
                     language: None,
+                    categories: cats,
                 };
 
                 let result = if cross_validate {

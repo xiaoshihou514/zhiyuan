@@ -24,6 +24,7 @@ where
         max_results: 5,
         region: None,
         language: None,
+        categories: "general".into(),
     };
     let results = match engine.search(&query).await {
         Ok(r) => r,

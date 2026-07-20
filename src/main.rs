@@ -449,10 +449,8 @@ async fn fix_typst_errors(
     }
 
     fn closest_bib_keys<'a>(bad_key: &str, keys: &[&'a str], n: usize) -> Vec<&'a str> {
-        let mut scored: Vec<(usize, &str)> = keys
-            .iter()
-            .map(|k| (levenshtein(bad_key, k), *k))
-            .collect();
+        let mut scored: Vec<(usize, &str)> =
+            keys.iter().map(|k| (levenshtein(bad_key, k), *k)).collect();
         scored.sort_by_key(|(d, _)| *d);
         scored.into_iter().take(n).map(|(_, k)| k).collect()
     }

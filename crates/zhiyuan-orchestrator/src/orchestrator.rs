@@ -132,10 +132,14 @@ impl ResearchOrchestrator {
         let seen_urls = Arc::new(Mutex::new(HashSet::new()));
 
         let mut empty_rounds = 0;
-        let mut prev_quality = 0.0f64;
-        let mut quality_stagnant_rounds = 0u32;
 
-        for iteration in 1..=self.config.max_iterations {
+        let max_iters = if self.config.long_report {
+            3.min(self.config.max_iterations)
+        } else {
+            self.config.max_iterations
+        };
+
+        for iteration in 1..=max_iters {
             tracing::info!("轮次" = iteration, "发现数" = %state.findings.len(), "开始新一轮迭代");
             self.report(ProgressUpdate::Phase {
                 name: "研究".into(),
@@ -205,30 +209,14 @@ impl ResearchOrchestrator {
                 sources_count: state.citation_graph.sources.len(),
             });
 
-            // 质量停滞检测
-            if iteration > 1 {
-                let delta = quality.overall - prev_quality;
-                if delta < 0.01 {
-                    quality_stagnant_rounds += 1;
-                } else {
-                    quality_stagnant_rounds = 0;
-                }
-            }
-            prev_quality = quality.overall;
-            if quality_stagnant_rounds >= 2 {
-                tracing::warn!("连续 2 轮质量无提升，提前终止研究");
-                break;
-            }
-
-            if quality.overall < self.config.quality_threshold {
-                state.pending_directions = self
-                    .synthesizer
-                    .extract_directions(&query.query, &state.findings, Some(&plan.sub_tasks))
-                    .await
-                    .unwrap_or_default();
-                if !state.pending_directions.is_empty() {
-                    tracing::info!("新方向" = %state.pending_directions.len(), "发现新的研究方向");
-                }
+            // 提取新研究方向（每轮执行）
+            state.pending_directions = self
+                .synthesizer
+                .extract_directions(&query.query, &state.findings, Some(&plan.sub_tasks))
+                .await
+                .unwrap_or_default();
+            if !state.pending_directions.is_empty() {
+                tracing::info!("新方向" = %state.pending_directions.len(), "发现新的研究方向");
             }
 
             let report = self.build_or_update_report(&state, &quality, &query).await;
@@ -239,10 +227,7 @@ impl ResearchOrchestrator {
                 &serde_json::to_string(&quality).unwrap_or_default(),
             );
 
-            if quality.overall >= self.config.quality_threshold {
-                tracing::info!("质量阈值已达，停止迭代");
-                break;
-            }
+            // 不再使用质量阈值判定终止，仅靠迭代次数和新增发现量控制
         }
 
         self.verify_findings(&mut state).await;
@@ -402,7 +387,7 @@ impl ResearchOrchestrator {
             context
         };
 
-        let queries = self.searcher.generate_queries(task_desc, &context).await?;
+        let (categories, queries) = self.searcher.generate_queries(task_desc, &context).await?;
         if queries.is_empty() {
             return Ok((vec![], HashMap::new()));
         }
@@ -419,6 +404,7 @@ impl ResearchOrchestrator {
                 5,
                 self.config.concurrency,
                 self.config.cross_validate,
+                &categories,
             )
             .await?;
 

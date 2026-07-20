@@ -85,6 +85,12 @@ pub struct SearchQuery {
     pub max_results: usize,
     pub region: Option<String>,
     pub language: Option<String>,
+    #[serde(default = "default_search_categories")]
+    pub categories: String,
+}
+
+fn default_search_categories() -> String {
+    "general".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,8 +263,6 @@ pub struct LlmConfig {
 pub struct ResearchSettings {
     #[serde(default = "default_max_iterations")]
     pub max_iterations: usize,
-    #[serde(default = "default_quality_threshold")]
-    pub quality_threshold: f64,
     #[serde(default = "default_concurrency")]
     pub concurrency: usize,
     #[serde(default)]
@@ -269,9 +273,6 @@ pub struct ResearchSettings {
 
 fn default_max_iterations() -> usize {
     4
-}
-fn default_quality_threshold() -> f64 {
-    0.7
 }
 fn default_concurrency() -> usize {
     4

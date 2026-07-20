@@ -27,6 +27,11 @@ fn bib_key(url: &str) -> String {
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .collect();
     let slug = slug.trim_matches('-').to_lowercase();
+    let slug = if slug.len() > 12 {
+        slug[..12].to_string()
+    } else {
+        slug
+    };
     if slug.is_empty() || slug.len() < 3 {
         prefix.to_string()
     } else {
@@ -48,9 +53,17 @@ fn extract_title(raw: &str) -> (String, String) {
 
 fn key_map_table(entries: &[(String, String)]) -> String {
     let mut table = String::from("\n\n引用 key 对照表（使用 @key 格式标注引用，例如 @example_report）：\nkey                    标题\n────────────────────────────────────────────────────\n");
+    let mut seen = std::collections::HashSet::new();
     for (url, title) in entries {
+        let base = bib_key(url);
+        let mut key = base.clone();
+        let mut counter = 1;
+        while !seen.insert(key.clone()) {
+            counter += 1;
+            key = format!("{}_{}", base, counter);
+        }
         let label = if title.is_empty() { url } else { title };
-        table.push_str(&format!("{:<22} {}\n", bib_key(url), label));
+        table.push_str(&format!("{:<22} {}\n", key, label));
     }
     table
 }
