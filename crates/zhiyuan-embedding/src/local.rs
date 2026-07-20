@@ -29,9 +29,17 @@ impl LocalEmbedder {
             std::env::set_var("HF_ENDPOINT", "https://hf-mirror.com");
         }
 
+        // 统一缓存到 ~/.cache/zhiyuan/embedding/
+        let cache_dir = std::env::var("HOME")
+            .map(|h| std::path::PathBuf::from(h).join(".cache").join("zhiyuan").join("embedding"))
+            .unwrap_or_else(|_| std::path::PathBuf::from(".fastembed_cache"));
+
         let (model, dim, label) = match model_name {
             Some("bge-large-zh") | None => {
-                let m = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::BGELargeZHV15))
+                let m = TextEmbedding::try_new(
+                    InitOptions::new(EmbeddingModel::BGELargeZHV15)
+                        .with_cache_dir(cache_dir.clone()),
+                )
                     .map_err(|e| EmbeddingError {
                         message: format!("fastembed 模型加载失败: {e}"),
                         kind: EmbeddingErrorKind::ModelLoad,
@@ -39,7 +47,10 @@ impl LocalEmbedder {
                 (m, 1024, "bge-large-zh-v1.5")
             }
             Some("bge-small-zh") => {
-                let m = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::BGESmallZHV15))
+                let m = TextEmbedding::try_new(
+                    InitOptions::new(EmbeddingModel::BGESmallZHV15)
+                        .with_cache_dir(cache_dir.clone()),
+                )
                     .map_err(|e| EmbeddingError {
                         message: format!("fastembed 模型加载失败: {e}"),
                         kind: EmbeddingErrorKind::ModelLoad,
@@ -47,7 +58,10 @@ impl LocalEmbedder {
                 (m, 512, "bge-small-zh-v1.5")
             }
             Some("multilingual-e5-base") => {
-                let m = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::MultilingualE5Base))
+                let m = TextEmbedding::try_new(
+                    InitOptions::new(EmbeddingModel::MultilingualE5Base)
+                        .with_cache_dir(cache_dir.clone()),
+                )
                     .map_err(|e| EmbeddingError {
                         message: format!("fastembed 模型加载失败: {e}"),
                         kind: EmbeddingErrorKind::ModelLoad,
