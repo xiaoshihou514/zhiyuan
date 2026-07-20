@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 zhiyuan-core = { path = "../zhiyuan-core" }
+zhiyuan-robust = { path = "../zhiyuan-robust" }
 reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 tracing = "0.1"

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use std::time::Duration;
 use zhiyuan_core::{Result as CoreResult, SearchQuery, SearchResult};
+use zhiyuan_robust::with_timeout;
 
 #[async_trait]
 pub trait SearchEngine: Send + Sync {
@@ -18,7 +19,6 @@ pub struct SearXngEngine {
 impl SearXngEngine {
     pub fn new(base_url: &str, max_results: usize) -> Self {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
             .build()
             .expect("Failed to create HTTP client");
         Self {
@@ -36,57 +36,60 @@ impl SearchEngine for SearXngEngine {
     }
 
     async fn search(&self, query: &SearchQuery) -> CoreResult<Vec<SearchResult>> {
-        let resp = self
-            .client
-            .get(format!("{}/search", self.base_url))
-            .query(&[
-                ("q", &query.query),
-                ("format", &"json".to_string()),
-                ("categories", &query.categories),
-                ("language", &"all".to_string()),
-                ("safesearch", &"0".to_string()),
-            ])
-            .send()
-            .await
-            .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 请求失败: {e}")))?;
+        with_timeout(Duration::from_secs(15), || async {
+            let resp = self
+                .client
+                .get(format!("{}/search", self.base_url))
+                .query(&[
+                    ("q", &query.query),
+                    ("format", &"json".to_string()),
+                    ("categories", &query.categories),
+                    ("language", &"all".to_string()),
+                    ("safesearch", &"0".to_string()),
+                ])
+                .send()
+                .await
+                .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 请求失败: {e}")))?;
 
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 读取响应失败: {e}")))?;
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 读取响应失败: {e}")))?;
 
-        #[derive(serde::Deserialize)]
-        struct SearxngResponse {
-            results: Vec<SearxngResult>,
-        }
+            #[derive(serde::Deserialize)]
+            struct SearxngResponse {
+                results: Vec<SearxngResult>,
+            }
 
-        #[derive(serde::Deserialize)]
-        struct SearxngResult {
-            title: String,
-            url: String,
-            #[serde(default)]
-            content: String,
-            #[serde(default)]
-            engine: String,
-        }
+            #[derive(serde::Deserialize)]
+            struct SearxngResult {
+                title: String,
+                url: String,
+                #[serde(default)]
+                content: String,
+                #[serde(default)]
+                engine: String,
+            }
 
-        let parsed: SearxngResponse = serde_json::from_str(&body)
-            .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 解析 JSON 失败: {e}")))?;
+            let parsed: SearxngResponse = serde_json::from_str(&body)
+                .map_err(|e| zhiyuan_core::Error::Search(format!("SearXNG 解析 JSON 失败: {e}")))?;
 
-        let results: Vec<SearchResult> = parsed
-            .results
-            .into_iter()
-            .take(self.max_results)
-            .map(|r| SearchResult {
-                title: r.title,
-                url: r.url,
-                snippet: r.content,
-                source: format!("searxng/{}", r.engine),
-                fetch_time: Utc::now(),
-            })
-            .collect();
+            let results: Vec<SearchResult> = parsed
+                .results
+                .into_iter()
+                .take(self.max_results)
+                .map(|r| SearchResult {
+                    title: r.title,
+                    url: r.url,
+                    snippet: r.content,
+                    source: format!("searxng/{}", r.engine),
+                    fetch_time: Utc::now(),
+                })
+                .collect();
 
-        Ok(results)
+            Ok(results)
+        })
+        .await
     }
 }
 
