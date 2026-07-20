@@ -49,9 +49,8 @@ impl ResearchOrchestrator {
 
         if embedder.dimension() > 0 {
             tracing::info!("embedding 模型已加载: {} ({} 维)", embedder.name(), embedder.dimension());
-        } else {
-            tracing::info!("embedding 模型不可用，将使用关键词匹配降级");
         }
+        // dimension == 0 时日志已在 auto_embedder 中打印
 
         Self {
             memory,

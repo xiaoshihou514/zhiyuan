@@ -37,10 +37,14 @@ impl LocalEmbedder {
         let result = Self::try_load(model_name, cache_dir.clone());
         match result {
             Ok(embedder) => return Ok(embedder),
-            Err(_) => {
-                // 加载失败，清理不完整缓存后重试一次
-                tracing::warn!("embedding 模型加载失败，清理缓存后重试...");
-                let _ = std::fs::remove_dir_all(&cache_dir);
+            Err(e) => {
+                tracing::warn!("embedding 模型加载失败: {e}，清理缓存后重试...");
+                // 删除不完整的缓存文件
+                if cache_dir.exists() {
+                    if let Err(rm_err) = std::fs::remove_dir_all(&cache_dir) {
+                        tracing::warn!("清理缓存目录失败: {rm_err}");
+                    }
+                }
                 Self::try_load(model_name, cache_dir)
             }
         }

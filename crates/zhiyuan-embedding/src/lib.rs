@@ -102,7 +102,7 @@ pub fn auto_embedder(model_name: Option<&str>) -> Box<dyn EmbeddingProvider> {
                 return Box::new(embedder);
             }
             Err(e) => {
-                tracing::warn!("本地 embedding 模型加载失败: {e}，将降级为关键词匹配");
+                tracing::warn!("本地 embedding 模型加载失败: [{:?}] {}", e.kind, e.message);
             }
         }
     }
