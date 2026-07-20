@@ -61,8 +61,8 @@ impl LocalEmbedder {
     /// 用 reqwest 预下载模型到 hf-hub 缓存目录
     ///
     /// hf-hub 的 ureq HTTP 客户端在某些网络环境中（如代理限制、CDN UA 过滤）可能失败。
-    /// 此函数使用 reqwest（浏览器兼容性更好的 HTTP 库）预先将模型文件下载到缓存中，
-    /// 然后 fastembed 可以直接从缓存加载而无需走 hf-hub 下载路径。
+    /// 此函数使用 reqwest（浏览器兼容性更好的 HTTP 库，自动读取 HTTP_PROXY/HTTPS_PROXY 环境变量）
+    /// 预先将模型文件下载到缓存中，然后 fastembed 可以直接从缓存加载而无需走 hf-hub 下载路径。
     fn predownload_model(model_name: Option<&str>, cache_dir: &std::path::Path) -> Result<(), EmbeddingError> {
         let (repo_id, model_file, _dim) = match model_name {
             Some("bge-large-zh") | None => ("Xenova/bge-large-zh-v1.5", "onnx/model.onnx", 1024),
@@ -95,6 +95,9 @@ impl LocalEmbedder {
 
         let client = reqwest::blocking::Client::builder()
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+            .timeout(std::time::Duration::from_secs(300)) // 5 分钟总超时
+            .connect_timeout(std::time::Duration::from_secs(30)) // 连接超时 30 秒
+            // 自动读取 HTTP_PROXY / HTTPS_PROXY / NO_PROXY 环境变量
             .build()
             .map_err(|e| EmbeddingError {
                 message: format!("创建 HTTP 客户端失败: {e}"),
@@ -103,21 +106,30 @@ impl LocalEmbedder {
 
         // 先 HEAD 获取 commit hash 和文件大小
         let head_resp = client.head(&model_url).send().map_err(|e| EmbeddingError {
-            message: format!("请求模型元数据失败: {e}"),
+            message: format!("请求模型元数据失败（请检查代理/网络）: {e}"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
+        let status = head_resp.status();
+        if !status.is_success() {
+            return Err(EmbeddingError {
+                message: format!("服务器返回 {status}（请检查 HF_ENDPOINT 和代理设置）"),
+                kind: EmbeddingErrorKind::ModelLoad,
+            });
+        }
         let commit_hash = head_resp
             .headers()
             .get("x-repo-commit")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("main")
             .to_string();
-        let _file_size: u64 = head_resp
+        let file_size: u64 = head_resp
             .headers()
             .get("content-length")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
+        let size_mb = file_size as f64 / 1_048_576.0;
+        tracing::info!("模型大小约 {size_mb:.1} MB，开始下载...");
 
         // 下载模型文件
         std::fs::create_dir_all(&blob_dir).map_err(|e| EmbeddingError {
@@ -134,10 +146,33 @@ impl LocalEmbedder {
             message: format!("创建文件失败: {e}"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
-        response.copy_to(&mut file).map_err(|e| EmbeddingError {
-            message: format!("写入模型文件失败: {e}"),
-            kind: EmbeddingErrorKind::ModelLoad,
-        })?;
+        let mut downloaded: u64 = 0;
+        let mut last_log = std::time::Instant::now();
+        loop {
+            let mut buf = [0u8; 65536]; // 64KB buffer
+            let n = std::io::Read::read(&mut response, &mut buf).map_err(|e| EmbeddingError {
+                message: format!("读取下载流失败: {e}"),
+                kind: EmbeddingErrorKind::ModelLoad,
+            })?;
+            if n == 0 {
+                break;
+            }
+            downloaded += n as u64;
+            std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| EmbeddingError {
+                message: format!("写入文件失败: {e}"),
+                kind: EmbeddingErrorKind::ModelLoad,
+            })?;
+            if last_log.elapsed() >= std::time::Duration::from_secs(5) {
+                let pct = if file_size > 0 {
+                    downloaded as f64 / file_size as f64 * 100.0
+                } else {
+                    0.0
+                };
+                let dl_mb = downloaded as f64 / 1_048_576.0;
+                tracing::info!("  {dl_mb:.1}/{size_mb:.1} MB ({pct:.0}%)");
+                last_log = std::time::Instant::now();
+            }
+        }
         drop(file);
 
         // 创建 refs/main
