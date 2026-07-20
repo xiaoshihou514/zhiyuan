@@ -28,5 +28,4 @@ font_paths = [
 ]
 
 [embedding]
-# enabled = true
 # model = "bge-large-zh"

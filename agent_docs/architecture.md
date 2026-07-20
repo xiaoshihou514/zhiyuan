@@ -83,8 +83,7 @@
 | | `long_report` | false | 长报告模式 |
 | | `cross_validate` | false | 交叉验证 |
 | `[pdf]` | `font_paths` | `[]` | Typst 字体路径 |
-| `[embedding]` | `enabled` | `true` | 是否启用向量检索 |
-| | `model` | `"bge-large-zh"` | embedding 模型名 |
+| `[embedding]` | `model` | `"bge-large-zh"` | embedding 模型名 |
 
 ## 目录结构
 

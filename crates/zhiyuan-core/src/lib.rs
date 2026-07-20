@@ -317,16 +317,9 @@ pub struct ResearchConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingConfig {
-    /// 是否启用 embedding 向量检索
-    #[serde(default = "default_embedding_enabled")]
-    pub enabled: bool,
     /// 模型名称：bge-large-zh / bge-small-zh / multilingual-e5-base
     #[serde(default = "default_embedding_model")]
     pub model: String,
-}
-
-fn default_embedding_enabled() -> bool {
-    true
 }
 
 fn default_embedding_model() -> String {
@@ -336,7 +329,6 @@ fn default_embedding_model() -> String {
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             model: "bge-large-zh".to_string(),
         }
     }
@@ -377,9 +369,6 @@ pub struct ResearchSettings {
     pub long_report: bool,
     #[serde(default)]
     pub cross_validate: bool,
-    /// 是否启用 embedding 向量检索（默认 true）
-    #[serde(default = "default_embedding_enabled")]
-    pub embedding_enabled: bool,
 }
 
 fn default_max_iterations() -> usize {
