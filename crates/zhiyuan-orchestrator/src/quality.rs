@@ -1,4 +1,4 @@
-use zhiyuan_core::{CitationEdge, CitationGraph, KnowledgeBase, QualityScore, ResearchPlan};
+use zhiyuan_core::{KnowledgeBase, QualityScore, ResearchPlan};
 
 pub struct QualityEvaluator;
 
@@ -8,14 +8,12 @@ impl QualityEvaluator {
         knowledge: &KnowledgeBase,
         query: &str,
         plan: &ResearchPlan,
-        citation_graph: &CitationGraph,
     ) -> QualityScore {
         let coverage = self.calc_coverage(knowledge, plan, query);
-        let reliability = self.calc_reliability(citation_graph, knowledge);
         let freshness = self.calc_freshness(knowledge);
         let depth = self.calc_depth(knowledge);
 
-        QualityScore::new(coverage, reliability, freshness, depth)
+        QualityScore::new(coverage, freshness, depth)
     }
 
     /// 子任务覆盖率：用关键词匹配 findings 覆盖了多少子任务
@@ -49,43 +47,6 @@ impl QualityEvaluator {
                 .count();
             covered as f64 / frags.len() as f64
         }
-    }
-
-    /// 可靠性：引用图多边率 + 多源率
-    fn calc_reliability(&self, citation_graph: &CitationGraph, knowledge: &KnowledgeBase) -> f64 {
-        if knowledge.findings.is_empty() {
-            return 0.0;
-        }
-
-        let multi_edge_ratio = if citation_graph.claims.is_empty() {
-            0.3
-        } else {
-            let multi = citation_graph
-                .claims
-                .iter()
-                .filter(|c| {
-                    citation_graph
-                        .edges
-                        .iter()
-                        .filter(|e| match e {
-                            CitationEdge::Supports { claim_id, .. } => *claim_id == c.id,
-                            CitationEdge::Contradicts { claim_id, .. } => *claim_id == c.id,
-                        })
-                        .count()
-                        >= 2
-                })
-                .count();
-            multi as f64 / citation_graph.claims.len() as f64
-        };
-
-        let multi_source_ratio = knowledge
-            .findings
-            .iter()
-            .filter(|f| f.sources.len() >= 2)
-            .count() as f64
-            / knowledge.findings.len() as f64;
-
-        0.5 * multi_edge_ratio + 0.5 * multi_source_ratio
     }
 
     /// 多样性：最新一轮迭代的发现占比

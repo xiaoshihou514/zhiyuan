@@ -21,7 +21,14 @@ impl LocalEmbedder {
     ///
     /// `model_name` 可选：传入 `"bge-large-zh"`、`"multilingual-e5-base"` 等。
     /// 为 `None` 时使用默认模型（bge-large-zh-v1.5）。
+    ///
+    /// 模型下载优先使用 `HF_ENDPOINT` 环境变量（若未设置则默认 `https://hf-mirror.com`）。
     pub fn new(model_name: Option<&str>) -> Result<Self, EmbeddingError> {
+        // Hugging Face 国内镜像（用户可覆盖）
+        if std::env::var("HF_ENDPOINT").is_err() {
+            std::env::set_var("HF_ENDPOINT", "https://hf-mirror.com");
+        }
+
         let (model, dim, label) = match model_name {
             Some("bge-large-zh") | None => {
                 let m = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::BGELargeZHV15))

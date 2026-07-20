@@ -770,9 +770,9 @@ impl Component for App {
                         Style::new().fg(color),
                     )
                 }
-                let (cq, cr, cd, cf, co) = match quality {
-                    Some(q) => (q.coverage, q.reliability, q.depth, q.freshness, q.overall),
-                    None => (0.0, 0.0, 0.0, 0.0, 0.0),
+                let (cq, cd, cf, co) = match quality {
+                    Some(q) => (q.coverage, q.depth, q.freshness, q.overall),
+                    None => (0.0, 0.0, 0.0, 0.0),
                 };
                 let gauge_lines = vec![
                     Line::from(vec![
@@ -781,12 +781,6 @@ impl Component for App {
                         Span::styled(format!("{:>3.0}%", cq * 100.0), WARM),
                         Span::raw(" "),
                         bar8(cq, TEAL),
-                        Span::raw("  "),
-                        Span::styled("可靠", GRAY),
-                        Span::raw(" "),
-                        Span::styled(format!("{:>3.0}%", cr * 100.0), WARM),
-                        Span::raw(" "),
-                        bar8(cr, TEAL),
                     ]),
                     Line::from(vec![
                         Span::styled("深度", GRAY),
@@ -891,8 +885,6 @@ impl Component for App {
                     Span::styled(format!("{:.2}  ", q.overall), Style::new().fg(GOLD).bold()),
                     Span::styled("覆盖", GRAY),
                     Span::raw(format!(" {:.0}%  ", q.coverage * 100.0)),
-                    Span::styled("可靠", GRAY),
-                    Span::raw(format!(" {:.0}%  ", q.reliability * 100.0)),
                     Span::styled("深度", GRAY),
                     Span::raw(format!(" {:.0}%  ", q.depth * 100.0)),
                 ]));

@@ -193,12 +193,10 @@ impl ResearchOrchestrator {
                 &knowledge,
                 &query.full_query(),
                 &plan,
-                &state.citation_graph,
             );
             tracing::info!(
                 "总分" = %quality.overall,
                 "覆盖" = %quality.coverage,
-                "可靠" = %quality.reliability,
                 "深度" = %quality.depth,
                 "质量评分"
             );
@@ -242,12 +240,10 @@ impl ResearchOrchestrator {
             },
             &query.full_query(),
             &plan,
-            &state.citation_graph,
         );
         tracing::info!(
             "总分" = %quality.overall,
             "覆盖" = %quality.coverage,
-            "可靠" = %quality.reliability,
             "深度" = %quality.depth,
             "最终质量评分"
         );
@@ -493,7 +489,6 @@ impl ResearchOrchestrator {
                         .get(url)
                         .cloned()
                         .unwrap_or_else(|| url.clone()),
-                    reliability: 0.5,
                 })
             })
             .collect();

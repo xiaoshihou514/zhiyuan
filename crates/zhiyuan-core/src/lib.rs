@@ -206,18 +206,16 @@ pub struct KnowledgeBase {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualityScore {
     pub coverage: f64,
-    pub reliability: f64,
     pub freshness: f64,
     pub depth: f64,
     pub overall: f64,
 }
 
 impl QualityScore {
-    pub fn new(coverage: f64, reliability: f64, freshness: f64, depth: f64) -> Self {
-        let overall = coverage * 0.3 + reliability * 0.3 + freshness * 0.2 + depth * 0.2;
+    pub fn new(coverage: f64, freshness: f64, depth: f64) -> Self {
+        let overall = coverage * 0.4 + freshness * 0.3 + depth * 0.3;
         Self {
             coverage,
-            reliability,
             freshness,
             depth,
             overall,
@@ -244,7 +242,6 @@ pub struct SourceNode {
     pub id: Uuid,
     pub url: String,
     pub title: String,
-    pub reliability: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
