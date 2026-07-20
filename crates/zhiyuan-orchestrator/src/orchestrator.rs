@@ -52,7 +52,7 @@ impl ResearchOrchestrator {
             synthesizer: SynthesizerAgent::new(llm.clone_box()),
             writer: WriterAgent::new(llm.clone_box()),
             verifier: VerifierAgent::new(llm.clone_box()),
-            quality_evaluator: QualityEvaluator,
+            quality_evaluator: QualityEvaluator::new(Some(llm.clone_box())),
             config,
             llm,
             progress,

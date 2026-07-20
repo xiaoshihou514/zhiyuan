@@ -1,9 +1,15 @@
 use std::collections::{HashMap, HashSet};
-use zhiyuan_core::{KnowledgeBase, QualityScore, ResearchPlan};
+use zhiyuan_core::{KnowledgeBase, LlmClient, QualityScore, ResearchPlan};
 
-pub struct QualityEvaluator;
+pub struct QualityEvaluator {
+    llm: Option<Box<dyn LlmClient>>,
+}
 
 impl QualityEvaluator {
+    pub fn new(llm: Option<Box<dyn LlmClient>>) -> Self {
+        Self { llm }
+    }
+
     pub fn evaluate(
         &self,
         knowledge: &KnowledgeBase,
@@ -19,13 +25,11 @@ impl QualityEvaluator {
         QualityScore::new(coverage, reliability, freshness, depth)
     }
 
-    /// 五维可靠性
+    /// 三维可靠性
     ///
-    /// 1. 来源权威性：域名级别（.edu/.gov/学术机构 vs 普通站点）
+    /// 1. 来源权威性：LLM 评估 URL 域名权威性（回退关键词规则）
     /// 2. 内部一致性：同源声明是否自洽（Jaccard 相似度检测矛盾）
-    /// 3. 时效一致性：不同来源对同一事实的时效描述是否一致
-    /// 4. 提取完整性：内容长度 vs 截断阈值
-    /// 5. 语义一致性：同子任务的发现是否指向相同结论
+    /// 3. 语义一致性：同子任务的发现是否指向相同结论
     fn calc_reliability(&self, knowledge: &KnowledgeBase) -> f64 {
         if knowledge.findings.is_empty() {
             return 0.0;
@@ -33,35 +37,105 @@ impl QualityEvaluator {
 
         let authority = self.dim_authority(knowledge);
         let consistency = self.dim_consistency(knowledge);
-        let temporal = self.dim_temporal(knowledge);
-        let completeness = self.dim_completeness(knowledge);
         let semantic = self.dim_semantic(knowledge);
 
         // 等权平均
-        0.2 * authority + 0.2 * consistency + 0.2 * temporal + 0.2 * completeness + 0.2 * semantic
+        (authority + consistency + semantic) / 3.0
     }
 
-    /// 1. 来源权威性：通过域名判断来源级别
+    /// 1. 来源权威性：LLM 评估 URL 域名权威性（回退关键词规则）
     fn dim_authority(&self, knowledge: &KnowledgeBase) -> f64 {
-        let mut total = 0.0f64;
-        let mut count = 0usize;
+        // 收集所有唯一 URL
+        let mut unique_urls: Vec<&str> = Vec::new();
         let mut seen = HashSet::new();
-
         for f in &knowledge.findings {
             for url in &f.sources {
-                if !seen.insert(url.clone()) {
-                    continue;
+                if seen.insert(url.as_str()) {
+                    unique_urls.push(url);
                 }
-                count += 1;
-                total += self.score_domain(url);
             }
         }
 
-        if count == 0 {
-            0.3
-        } else {
-            total / count as f64
+        if unique_urls.is_empty() {
+            return 0.3;
         }
+
+        // 优先用 LLM 评估
+        if let Some(ref llm) = self.llm {
+            return self.llm_authority(&**llm, &unique_urls);
+        }
+
+        // 回退：关键词规则
+        self.keyword_authority(&unique_urls)
+    }
+
+    /// LLM 评估 URL 权威性（system prompt 固定，优化 KV 缓存）
+    fn llm_authority(&self, llm: &dyn LlmClient, urls: &[&str]) -> f64 {
+        let system = "\
+你是一个来源权威性评估专家。对每个 URL，根据其域名判断信息权威性，返回 0-1 的分数。
+
+评分标准：
+1.0  顶级学术机构（.edu/.gov 域名）、学术出版商（IEEE/ACM/Springer/Elsevier/arXiv）
+0.8  技术文档/标准组织（W3C/MDN/Rust-lang/Kernel.org）、代码托管（GitHub/GitLab）
+0.6  知名技术媒体/社区（Medium/Stack Overflow/InfoQ/DZone/O'Reilly）
+0.4  普通商业网站、个人博客、新闻媒体
+0.2  低质量内容农场、论坛、自媒体、SEO 站点
+
+只输出纯 JSON，不要 markdown 围栏，不要其他文字。";
+
+        let url_list: String = urls
+            .iter()
+            .enumerate()
+            .map(|(i, u)| format!("{}. {}", i + 1, u))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let user = format!("请评估以下 URL 的权威性分数：\n{url_list}\n\n输出 JSON 格式：{{\"scores\": [{{\"url\": \"...\", \"score\": 0.0}}]}}");
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                let response = handle.block_on(async { llm.prompt(system, &user).await });
+                match response {
+                    Ok(text) => {
+                        let cleaned = text
+                            .trim_start_matches("```json")
+                            .trim_start_matches("```")
+                            .trim_end_matches("```")
+                            .trim();
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned) {
+                            let scores: Vec<f64> = parsed["scores"]
+                                .as_array()
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v["score"].as_f64())
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            if !scores.is_empty() {
+                                return scores.iter().sum::<f64>() / scores.len() as f64;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("LLM 权威性评估失败，回退关键词: {e}");
+                    }
+                }
+            }
+            Err(_) => {
+                tracing::debug!("无 tokio runtime，跳过 LLM 权威性评估");
+            }
+        }
+
+        self.keyword_authority(urls)
+    }
+
+    /// 关键词规则回退
+    fn keyword_authority(&self, urls: &[&str]) -> f64 {
+        let mut total = 0.0f64;
+        for url in urls {
+            total += self.score_domain(url);
+        }
+        total / urls.len() as f64
     }
 
     fn score_domain(&self, url: &str) -> f64 {
@@ -74,11 +148,9 @@ impl QualityEvaluator {
             .trim_start_matches("www.");
         let lower = domain.to_lowercase();
 
-        // 学术顶级域
         if lower.ends_with(".edu") || lower.ends_with(".gov") || lower.ends_with(".ac.") {
             return 1.0;
         }
-        // 学术出版/预印本
         if lower.contains("arxiv")
             || lower.contains("ieee")
             || lower.contains("acm")
@@ -91,7 +163,6 @@ impl QualityEvaluator {
         {
             return 0.95;
         }
-        // 技术文档/官方
         if lower.contains("github")
             || lower.contains("rust-lang")
             || lower.contains("python")
@@ -102,7 +173,6 @@ impl QualityEvaluator {
         {
             return 0.75;
         }
-        // 知名科技媒体
         if lower.contains("medium")
             || lower.contains("stackoverflow")
             || lower.contains("stackexchange")
@@ -112,7 +182,6 @@ impl QualityEvaluator {
         {
             return 0.55;
         }
-        // 普通站点
         0.3
     }
 
@@ -150,58 +219,6 @@ impl QualityEvaluator {
         } else {
             1.0 - (low_sim_pairs as f64 / total_pairs as f64)
         }
-    }
-
-    /// 3. 时效一致性：不同来源的年份描述是否一致
-    fn dim_temporal(&self, knowledge: &KnowledgeBase) -> f64 {
-        // 提取所有发现中的年份
-        let mut year_sets: Vec<HashSet<i32>> = Vec::new();
-        for f in &knowledge.findings {
-            let years: HashSet<i32> = extract_years(&f.content);
-            if !years.is_empty() {
-                year_sets.push(years);
-            }
-        }
-
-        if year_sets.len() < 2 {
-            return 0.5; // 不足以比较
-        }
-
-        // 检查所有年份集合是否有交集 → 一致
-        let mut consistent = 0usize;
-        let mut total = 0usize;
-        for i in 0..year_sets.len() {
-            for j in (i + 1)..year_sets.len() {
-                total += 1;
-                if year_sets[i].intersection(&year_sets[j]).next().is_some() {
-                    consistent += 1;
-                }
-            }
-        }
-
-        consistent as f64 / total as f64
-    }
-
-    /// 4. 提取完整性：发现内容的长度反映提取质量
-    fn dim_completeness(&self, knowledge: &KnowledgeBase) -> f64 {
-        if knowledge.findings.is_empty() {
-            return 0.0;
-        }
-        let total: f64 = knowledge
-            .findings
-            .iter()
-            .map(|f| {
-                let len = f.content.len();
-                // 200 字以下：很可能截断/提取失败
-                // 500 字以上：完整提取
-                match len {
-                    l if l >= 500 => 1.0,
-                    l if l >= 200 => 0.5 + (l - 200) as f64 / 600.0,
-                    _ => len as f64 / 200.0,
-                }
-            })
-            .sum();
-        (total / knowledge.findings.len() as f64).min(1.0)
     }
 
     /// 5. 语义一致性：同子任务的发现是否指向相同结论
@@ -335,7 +352,7 @@ impl QualityEvaluator {
 
 impl Default for QualityEvaluator {
     fn default() -> Self {
-        Self
+        Self { llm: None }
     }
 }
 
@@ -360,20 +377,6 @@ fn text_jaccard(a: &str, b: &str) -> f64 {
     } else {
         intersection as f64 / union as f64
     }
-}
-
-/// 从文本中提取所有出现的年份（四位数字，1900-2100）
-fn extract_years(text: &str) -> HashSet<i32> {
-    text.split_whitespace()
-        .filter_map(|w| {
-            let clean = w.trim_matches(|c: char| !c.is_ascii_digit());
-            if clean.len() == 4 {
-                clean.parse::<i32>().ok().filter(|y| (1900..=2100).contains(y))
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
 /// 从文本中提取匹配片段（复制自 extractor.rs 的逻辑，避免跨 crate 依赖）
