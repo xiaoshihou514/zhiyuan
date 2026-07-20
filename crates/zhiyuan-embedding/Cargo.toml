@@ -12,12 +12,15 @@ tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 bincode = "1"
 instant-distance = "0.6"
+sha2 = "0.10"
+pathdiff = "0.2"
 
 # 本地 embedding 模型（可选，编译时不需要模型文件）
 fastembed = { version = "4", features = ["ort-download-binaries", "hf-hub-native-tls"], optional = true }
 tokio = { version = "1", features = ["sync"], optional = true }
+reqwest = { version = "0.12", features = ["json", "blocking"], optional = true }
 
 [features]
 default = ["local"]
-local = ["fastembed", "tokio"]
+local = ["fastembed", "tokio", "reqwest"]
 remote = []

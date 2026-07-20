@@ -1,10 +1,18 @@
 use async_trait::async_trait;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing;
 
 use crate::{EmbeddingError, EmbeddingErrorKind, EmbeddingProvider};
+
+/// sha256 十六进制字符串
+fn sha256_hex(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
 
 /// 基于 fastembed (ONNX) 的本地 embedding 模型
 ///
@@ -50,7 +58,122 @@ impl LocalEmbedder {
         }
     }
 
+    /// 用 reqwest 预下载模型到 hf-hub 缓存目录
+    ///
+    /// hf-hub 的 ureq HTTP 客户端在某些网络环境中（如代理限制、CDN UA 过滤）可能失败。
+    /// 此函数使用 reqwest（浏览器兼容性更好的 HTTP 库）预先将模型文件下载到缓存中，
+    /// 然后 fastembed 可以直接从缓存加载而无需走 hf-hub 下载路径。
+    fn predownload_model(model_name: Option<&str>, cache_dir: &std::path::Path) -> Result<(), EmbeddingError> {
+        let (repo_id, model_file, _dim) = match model_name {
+            Some("bge-large-zh") | None => ("Xenova/bge-large-zh-v1.5", "onnx/model.onnx", 1024),
+            Some("bge-small-zh") => ("Xenova/bge-small-zh-v1.5", "onnx/model.onnx", 512),
+            Some("multilingual-e5-base") => ("Xenova/multilingual-e5-base", "onnx/model.onnx", 768),
+            Some(other) => return Err(EmbeddingError {
+                message: format!("不支持的模型: {other}"),
+                kind: EmbeddingErrorKind::ModelLoad,
+            }),
+        };
+
+        // hf-hub cache path: {cache_dir}/models--{repo_id_slug}/
+        let repo_slug = repo_id.replace('/', "--").replace('-', "--");
+        let repo_dir = cache_dir.join(format!("models--{}", repo_slug));
+        let blob_dir = repo_dir.join("blobs");
+
+        // Blob 文件名 = sha256(relative_file_path)
+        let blob_hash = sha256_hex(model_file);
+        let blob_path = blob_dir.join(&blob_hash);
+
+        if blob_path.exists() {
+            return Ok(()); // 已缓存
+        }
+
+        tracing::info!("正在下载 embedding 模型（{repo_id}/{model_file}）...");
+
+        // 获取 commit hash 和文件大小：先发 HEAD 请求
+        let endpoint = std::env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://huggingface.co".to_string());
+        let model_url = format!("{endpoint}/{repo_id}/resolve/main/{model_file}");
+
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+            .build()
+            .map_err(|e| EmbeddingError {
+                message: format!("创建 HTTP 客户端失败: {e}"),
+                kind: EmbeddingErrorKind::ModelLoad,
+            })?;
+
+        // 先 HEAD 获取 commit hash 和文件大小
+        let head_resp = client.head(&model_url).send().map_err(|e| EmbeddingError {
+            message: format!("请求模型元数据失败: {e}"),
+            kind: EmbeddingErrorKind::ModelLoad,
+        })?;
+        let commit_hash = head_resp
+            .headers()
+            .get("x-repo-commit")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("main")
+            .to_string();
+        let _file_size: u64 = head_resp
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
+        // 下载模型文件
+        std::fs::create_dir_all(&blob_dir).map_err(|e| EmbeddingError {
+            message: format!("创建缓存目录失败: {e}"),
+            kind: EmbeddingErrorKind::ModelLoad,
+        })?;
+
+        let mut response = client.get(&model_url).send().map_err(|e| EmbeddingError {
+            message: format!("下载模型文件失败: {e}"),
+            kind: EmbeddingErrorKind::ModelLoad,
+        })?;
+
+        let mut file = std::fs::File::create(&blob_path).map_err(|e| EmbeddingError {
+            message: format!("创建文件失败: {e}"),
+            kind: EmbeddingErrorKind::ModelLoad,
+        })?;
+        response.copy_to(&mut file).map_err(|e| EmbeddingError {
+            message: format!("写入模型文件失败: {e}"),
+            kind: EmbeddingErrorKind::ModelLoad,
+        })?;
+        drop(file);
+
+        // 创建 refs/main
+        let refs_dir = repo_dir.join("refs");
+        std::fs::create_dir_all(&refs_dir).ok();
+        let _ = std::fs::write(refs_dir.join("main"), &commit_hash);
+
+        // 创建 snapshot symlink: snapshots/{commit_hash}/onnx/model.onnx → blob
+        let pointer_path = repo_dir.join("snapshots").join(&commit_hash).join(model_file);
+        std::fs::create_dir_all(pointer_path.parent().unwrap()).map_err(|e| EmbeddingError {
+            message: format!("创建 snapshot 目录失败: {e}"),
+            kind: EmbeddingErrorKind::ModelLoad,
+        })?;
+
+        // 尝试创建相对 symlink，失败则直接复制
+        let rel_blob = pathdiff::diff_paths(&blob_path, pointer_path.parent().unwrap());
+        if let Some(rel) = rel_blob {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&rel, &pointer_path).ok();
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_file(&rel, &pointer_path).ok();
+        }
+        if !pointer_path.exists() {
+            std::fs::copy(&blob_path, &pointer_path).ok();
+        }
+
+        tracing::info!("embedding 模型下载完成");
+        Ok(())
+    }
+
     fn try_load(model_name: Option<&str>, cache_dir: std::path::PathBuf) -> Result<Self, EmbeddingError> {
+        // 先用 reqwest 预下载模型文件到 hf-hub 缓存（解决 ureq UA 被 CDN 拦截的问题）
+        if let Err(e) = Self::predownload_model(model_name, &cache_dir) {
+            tracing::warn!("预下载模型文件失败（将尝试 fastembed 内置下载）: {e}");
+        }
+
         let (model, dim, label) = match model_name {
             Some("bge-large-zh") | None => {
                 let m = TextEmbedding::try_new(
