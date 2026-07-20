@@ -87,6 +87,8 @@ impl ResearchOrchestrator {
                             dependencies: vec![],
                         }],
                         outline: None,
+                        core_thesis: None,
+                        reasoning_chain: None,
                     }
                 }
             },
@@ -653,6 +655,7 @@ impl ResearchOrchestrator {
                         sections: vec![],
                         citation_graph: state.citation_graph.clone(),
                         quality_score: quality.clone(),
+                        argument_skeleton: None,
                         generated_at: chrono::Utc::now(),
                     }
                 }),
@@ -662,6 +665,7 @@ impl ResearchOrchestrator {
                 sections: vec![],
                 citation_graph: state.citation_graph.clone(),
                 quality_score: quality.clone(),
+                argument_skeleton: None,
                 generated_at: chrono::Utc::now(),
             },
         }
@@ -726,6 +730,7 @@ impl ResearchOrchestrator {
                     .collect(),
                 citation_graph: state.citation_graph.clone(),
                 quality_score: quality.clone(),
+                argument_skeleton: None,
                 generated_at: chrono::Utc::now(),
             });
 

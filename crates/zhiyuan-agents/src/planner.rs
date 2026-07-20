@@ -50,12 +50,17 @@ impl PlannerAgent {
     async fn create_short_plan(&self, query: &ResearchQuery) -> Result<ResearchPlan> {
         let system = "你是一个研究规划专家。你的任务是根据用户的研究问题，生成结构化的研究计划。\
 你将复杂问题分解为具体的子任务，每个子任务应该是一个可以独立搜索和研究的方面。\
+同时提炼本研究的核心论点（core_thesis）和预期推理链（reasoning_chain）。\
 只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
 
         let user = format!(
             "研究问题：{}
 研究范围：请将这个问题分解为 3-6 个具体的子任务，每个子任务应该聚焦于一个独立的方面。
-输出 JSON 格式：{{\"sub_tasks\": [{{\"description\": \"...\", \"dependencies\": []}}]}}",
+同时给出：
+- core_thesis：本研究最核心的论点（一句话）
+- reasoning_chain：论证此论点的推理链（3-5 步，每步一句话）
+输出 JSON 格式：
+{{\"core_thesis\": \"...\", \"reasoning_chain\": [\"...\", \"...\"], \"sub_tasks\": [{{\"description\": \"...\", \"dependencies\": []}}]}}",
             query.full_query()
         );
 
@@ -70,11 +75,19 @@ impl PlannerAgent {
         })?;
 
         let tasks = sub_task_from_value(&parsed);
+        let core_thesis = parsed["core_thesis"].as_str().map(|s| s.to_string());
+        let reasoning_chain = parsed["reasoning_chain"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        });
 
         Ok(ResearchPlan {
             query_id: query.id,
             sub_tasks: tasks,
             outline: None,
+            core_thesis,
+            reasoning_chain,
         })
     }
 
@@ -85,14 +98,20 @@ impl PlannerAgent {
     ) -> Result<ResearchPlan> {
         let system = "你是一个研究规划和报告结构专家。你的任务是根据用户的研究问题，生成多章节的研究计划和大纲。\
 每个章节应该覆盖一个独立的子主题，所有章节合起来形成完整的研究报告。\
+同时提炼本研究的核心论点（core_thesis）和预期推理链（reasoning_chain）。\
 只输出纯 JSON，不要 markdown 格式、不要代码块、不要其他文字。";
 
         let user = format!(
             "研究问题：{}
 请生成一个研究大纲，包含适量的章节（通常 3-8 个），每个章节包含 title 和 description。
 同时为每个章节生成 2-3 个具体的子任务（sub_tasks）。
+同时给出：
+- core_thesis：本研究最核心的论点（一句话）
+- reasoning_chain：论证此论点的推理链（3-5 步，每步一句话）
 输出 JSON 格式：
 {{\
+  \"core_thesis\": \"...\",\
+  \"reasoning_chain\": [\"...\", \"...\"],\
   \"outline\": [\
     {{\"title\": \"章节标题\", \"description\": \"章节描述\"}}\
   ],\
@@ -125,11 +144,19 @@ impl PlannerAgent {
                 .collect::<Vec<_>>()
                 .join("\n\n")
         });
+        let core_thesis = parsed["core_thesis"].as_str().map(|s| s.to_string());
+        let reasoning_chain = parsed["reasoning_chain"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        });
 
         Ok(ResearchPlan {
             query_id: query.id,
             sub_tasks: tasks,
             outline,
+            core_thesis,
+            reasoning_chain,
         })
     }
 }

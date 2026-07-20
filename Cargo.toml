@@ -8,6 +8,7 @@ members = [
     "crates/zhiyuan-agents",
     "crates/zhiyuan-robust",
     "crates/zhiyuan-tests",
+    "crates/zhiyuan-embedding",
 ]
 resolver = "2"
 

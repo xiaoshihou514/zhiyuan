@@ -18,8 +18,8 @@
 
 - **`generate_clarifying_questions(query)`** — 生成 2-4 个问题，覆盖时间范围、地域、具体领域、关注重点
 - **`create_plan(query, settings)`** — 根据 `settings.long_report` 分流：
-  - **短报告**：分解为 3-6 个子任务，纯 JSON 输出
-  - **长报告**：生成 3-8 章大纲 + 每章 2-3 个子任务（含 `chapter_index`）
+  - **短报告**：分解为 3-6 个子任务 + `core_thesis`（核心论点）+ `reasoning_chain`（推理链），纯 JSON 输出
+  - **长报告**：生成 3-8 章大纲 + 每章 2-3 个子任务（含 `chapter_index`）+ `core_thesis` + `reasoning_chain`
 
 ## QueryPlannerAgent
 
@@ -49,6 +49,7 @@
 - **`synthesize(contents, sub_task_id, iteration, existing_findings)`**：
   - 长内容先调用 `summarize()` 压缩
   - 与已有发现比对 → 输出"新信息、矛盾点、补充细节"
+  - 输出 `Finding` 含 `epistemic_status` 字段（`Supports`/`Undermines`/`Extends`/`Irrelevant`）
   - JSON 解析失败时降级：取前 3 个来源各 500 字符作为 finding
 - **`summarize(content)`** — 每条信息生成 100-200 字摘要
 - **`extract_directions(question, findings, sub_tasks)`** — 识别 1-3 个知识盲区/待探索方向（含优先级 0-1）

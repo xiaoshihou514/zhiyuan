@@ -19,9 +19,14 @@ main_model = "deepseek-v4-flash"
 
 [research]
 concurrency = 4
+# embedding_enabled = true
 
 [pdf]
 font_paths = [
     "/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
 ]
+
+[embedding]
+# enabled = true
+# model = "bge-large-zh"

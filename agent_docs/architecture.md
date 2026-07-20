@@ -50,13 +50,14 @@
 
 | Crate | 职责 | 关键依赖 |
 |-------|------|---------|
-| `zhiyuan-core` | 核心类型 (`ResearchQuery`, `Finding`, `CitationGraph` 等)、`LlmClient` trait、`ResearchConfig`、错误枚举 | serde, thiserror, uuid |
+| `zhiyuan-core` | 核心类型 (`ResearchQuery`, `Finding`, `CitationGraph`, `ArgumentSkeleton`, `EpistemicStatus` 等)、`LlmClient` trait、`ResearchConfig`、错误枚举 | serde, thiserror, uuid |
+| `zhiyuan-embedding` | `EmbeddingProvider` trait, `LocalEmbedder` (bge-large-zh), `VectorIndex` (HNSW), `NoopEmbedder` 回退桩 | fastembed, instant-distance |
 | `zhiyuan-search` | `EnginePool` + `SearXngEngine`，搜索去重+相关度过滤 | reqwest, serde |
 | `zhiyuan-extract` | `WebExtractor`：dom_smoothie(Readability) → Markdown，PDF(pdf_oxide)，URL 缓存 | dom_smoothie, pdf_oxide |
 | `zhiyuan-memory` | `MemoryManager`：RocksDB 三列族 (working/episodic/semantic) | rocksdb, serde |
 | `zhiyuan-robust` | `with_retry()` 指数退避、`with_timeout()`、`MessageNormalizer` JSON 校验 | tokio, backoff |
 | `zhiyuan-agents` | 7 个 Agent（`PlannerAgent`, `QueryPlannerAgent`, `SearcherAgent`, `ExtractorAgent`, `SynthesizerAgent`, `VerifierAgent`, `WriterAgent`） | zhiyan-core, zhiyuan-search, zhiyuan-extract |
-| `zhiyuan-orchestrator` | `ResearchOrchestrator` 主循环 + `QualityEvaluator` 四维评分 | zhiyuan-agents, zhiyuan-memory |
+| `zhiyuan-orchestrator` | `ResearchOrchestrator` 主循环 + `QualityEvaluator` 四维评分 + `ArgumentBuilder` | zhiyuan-agents, zhiyuan-memory |
 
 ## 二进制入口 (`src/main.rs`)
 
@@ -82,6 +83,8 @@
 | | `long_report` | false | 长报告模式 |
 | | `cross_validate` | false | 交叉验证 |
 | `[pdf]` | `font_paths` | `[]` | Typst 字体路径 |
+| `[embedding]` | `enabled` | `true` | 是否启用向量检索 |
+| | `model` | `"bge-large-zh"` | embedding 模型名 |
 
 ## 目录结构
 

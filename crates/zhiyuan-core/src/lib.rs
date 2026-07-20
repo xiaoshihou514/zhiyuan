@@ -1,5 +1,7 @@
 mod llm;
+mod argument;
 pub use llm::*;
+pub use argument::*;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -60,6 +62,12 @@ pub struct ResearchPlan {
     pub query_id: Uuid,
     pub sub_tasks: Vec<SubTask>,
     pub outline: Option<String>,
+    /// 核心论点（由 PlannerAgent 生成）
+    #[serde(default)]
+    pub core_thesis: Option<String>,
+    /// 预期推理链（由 PlannerAgent 生成）
+    #[serde(default)]
+    pub reasoning_chain: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +125,76 @@ pub struct Finding {
     pub sources: Vec<String>,
     pub sub_task_id: Option<Uuid>,
     pub iteration: usize,
+    /// 对论证骨架的影响类型（由 SynthesizerAgent 标注）
+    #[serde(default)]
+    pub epistemic_status: Option<EpistemicStatus>,
+}
+
+/// 论证影响类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum EpistemicStatus {
+    /// 强化现有论点
+    Supports,
+    /// 削弱现有论点（触发修正）
+    Undermines,
+    /// 扩展论点边界（可能新增子论点）
+    Extends,
+    /// 与当前论证骨架无关（暂存或丢弃）
+    Irrelevant,
+}
+
+// ─── 论证骨架（Argument Skeleton）────────────────────────────────────
+
+/// 论点类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ArgumentNodeType {
+    /// 前提：基础假设或已知事实
+    Premise,
+    /// 证据：支撑论点的数据或引用
+    Evidence,
+    /// 结论：由前提和证据推导出的论断
+    Conclusion,
+}
+
+/// 论证骨架中的单个节点
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArgumentNode {
+    pub id: Uuid,
+    /// 论点表述
+    pub claim: String,
+    /// 节点类型
+    pub node_type: ArgumentNodeType,
+    /// 在推理链中的层级（0=最基础）
+    pub layer: usize,
+    /// 支撑该论点的来源 URL
+    pub sources: Vec<String>,
+}
+
+/// 论证节点间的边
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ArgumentEdge {
+    /// 支撑关系
+    Supports,
+    /// 削弱关系
+    Undermines,
+    /// 拓展关系
+    Extends,
+}
+
+/// 论证骨架：研究的推理结构表示
+///
+/// 由 PlannerAgent 初始化（core_thesis + reasoning_chain），
+/// 在迭代过程中被 SynthesizerAgent 增量更新，
+/// 供 QualityEvaluator 评分和 WriterAgent 组织报告。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArgumentSkeleton {
+    /// 所有论证节点
+    pub nodes: Vec<ArgumentNode>,
+    /// 节点间的边（(from_id, to_id, relation)）
+    pub edges: Vec<(Uuid, Uuid, ArgumentEdge)>,
+    /// 章节到骨架节点的映射：chapter_index → node_ids
+    #[serde(default)]
+    pub chapter_mapping: Vec<(usize, Uuid)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,6 +260,7 @@ pub struct ResearchReport {
     pub sections: Vec<ReportSection>,
     pub citation_graph: CitationGraph,
     pub quality_score: QualityScore,
+    pub argument_skeleton: Option<ArgumentSkeleton>,
     pub generated_at: DateTime<Utc>,
 }
 
@@ -232,6 +311,35 @@ pub struct ResearchConfig {
     pub llm: LlmConfig,
     pub research: ResearchSettings,
     pub pdf: PdfConfig,
+    #[serde(default)]
+    pub embedding: EmbeddingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingConfig {
+    /// 是否启用 embedding 向量检索
+    #[serde(default = "default_embedding_enabled")]
+    pub enabled: bool,
+    /// 模型名称：bge-large-zh / bge-small-zh / multilingual-e5-base
+    #[serde(default = "default_embedding_model")]
+    pub model: String,
+}
+
+fn default_embedding_enabled() -> bool {
+    true
+}
+
+fn default_embedding_model() -> String {
+    "bge-large-zh".to_string()
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            model: "bge-large-zh".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,6 +377,9 @@ pub struct ResearchSettings {
     pub long_report: bool,
     #[serde(default)]
     pub cross_validate: bool,
+    /// 是否启用 embedding 向量检索（默认 true）
+    #[serde(default = "default_embedding_enabled")]
+    pub embedding_enabled: bool,
 }
 
 fn default_max_iterations() -> usize {

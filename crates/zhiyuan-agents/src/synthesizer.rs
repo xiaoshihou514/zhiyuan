@@ -107,6 +107,7 @@ impl SynthesizerAgent {
                             .unwrap_or_default(),
                         sub_task_id: Some(sub_task_id),
                         iteration,
+                        epistemic_status: None,
                     })
                     .collect()
             })
@@ -122,6 +123,7 @@ impl SynthesizerAgent {
                         sources: vec![c.url.clone()],
                         sub_task_id: Some(sub_task_id),
                         iteration,
+                        epistemic_status: None,
                     });
                 }
             }

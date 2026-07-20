@@ -1,0 +1,23 @@
+[package]
+name = "zhiyuan-embedding"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+async-trait = "0.1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+bincode = "1"
+instant-distance = "0.6"
+
+# 本地 embedding 模型（可选，编译时不需要模型文件）
+fastembed = { version = "4", features = ["ort-download-binaries"], optional = true }
+tokio = { version = "1", features = ["sync"], optional = true }
+
+[features]
+default = ["local"]
+local = ["fastembed", "tokio"]
+remote = []

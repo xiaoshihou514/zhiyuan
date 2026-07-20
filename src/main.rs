@@ -173,6 +173,8 @@ async fn main() -> anyhow::Result<()> {
                         query_id: query.id,
                         sub_tasks: vec![],
                         outline: None,
+                        core_thesis: None,
+                        reasoning_chain: None,
                     },
                 };
                 let _ = tx.send(TuiEvent::PlanReady(plan.clone()));

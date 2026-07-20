@@ -98,6 +98,7 @@ impl WriterAgent {
             }],
             citation_graph: citation_graph.clone(),
             quality_score: quality_score.clone(),
+            argument_skeleton: None,
             generated_at: Utc::now(),
         })
     }
@@ -191,6 +192,7 @@ impl WriterAgent {
             }],
             citation_graph: citation_graph.clone(),
             quality_score: quality_score.clone(),
+            argument_skeleton: None,
             generated_at: Utc::now(),
         })
     }
@@ -299,6 +301,7 @@ impl WriterAgent {
                 edges: vec![],
             },
             quality_score: quality_score.clone(),
+            argument_skeleton: None,
             generated_at: chrono::Utc::now(),
         })
     }
