@@ -24,10 +24,8 @@ impl LocalEmbedder {
     ///
     /// 模型下载优先使用 `HF_ENDPOINT` 环境变量（若未设置则默认 `https://hf-mirror.com`）。
     pub fn new(model_name: Option<&str>) -> Result<Self, EmbeddingError> {
-        // Hugging Face 国内镜像（用户可覆盖）
-        if std::env::var("HF_ENDPOINT").is_err() {
-            std::env::set_var("HF_ENDPOINT", "https://hf-mirror.com");
-        }
+        // 用户可设 HF_ENDPOINT 指定镜像源（如 https://hf-mirror.com），
+        // 未设置时使用 Hugging Face 官方地址，走系统代理。
 
         // 统一缓存到 ~/.cache/zhiyuan/embedding/
         let cache_dir = std::env::var("HOME")
