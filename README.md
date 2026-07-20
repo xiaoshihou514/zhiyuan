@@ -1,45 +1,8 @@
-<div align="center">
+这是一个失败的项目。
 
-# 致远
-
-<img src="./template/icon.svg" alt="logo" width="30%" />
-
-致远是一个开源的“深度研究”框架。
-
-</div>
-
-<img width="1919" height="1037" alt="Image" src="https://github.com/user-attachments/assets/4b18f1bd-6323-4323-a1e1-f90803134eda" />
-
-```shell
-zhiyuan "某话题"
-zhiyuan --long "某复杂话题"
-```
-
-输出示例：
-- [东亚共同体的一体化前景_共同叙事_利益驱动力与现实挑战.pdf](https://github.com/user-attachments/files/30166087/_._.pdf)：“平等的东亚共同体的共同叙事、建构和联合的利益驱动力。经济与意识形态可能的现实东亚一体化方案（类似欧共体）和东亚一体化挑战”，普通模式，deepseek-v4-flash
-- [东亚经济 2025：趋势、挑战与转型路径.pdf](https://github.com/user-attachments/files/30166090/2025.pdf)：“东亚经济2025”，深度模式，deepseek-v4-flash
-- [大模型辅助科研在组合数学方向前沿研究的应用.pdf](https://github.com/user-attachments/files/30166092/default.pdf)：“大模型辅助科研在组合数学方向前沿研究的应用”，普通模式，deepseek-v4-flash
-
-## 配置
-```toml
-[search]
-max_results = 10                      # 每个搜索引擎最大结果数
-searxng_url = "http://localhost:8888" # SearXNG 实例地址，默认使用本地docker
-blocked_domains = []
-
-[llm]
-api_key = ""
-base_url = "https://api.deepseek.com/v1"
-main_model = "deepseek-v4-flash"
-
-[research]
-concurrency = 4
-
-[pdf]
-font_paths = []
-```
-
-如果你在Linux上，可以考虑常见的Noto Sans系列字体。
-```shell
-fc-list | rg 'Noto Sans' | cut -d':' -f1 | sort | uniq | rg 'Regular'
-```
+- 这是什么？
+  - 一个本地深度研究框架。
+- 为什么失败了？
+  - 现有开源本地研究框架已经实现了整个信息搜集-扩大知识面-总结报告的流水线，本项目立项初期试图引入一个图结构来关联现有知识，以便能够更好地指导这个过程
+  - 但经过实践，搜索引擎的大部分非学术结果是离散无序的，很难互相印证或建立关系。
+  - 强行实行这种模式会导致大量的无效信息进入处理流水线，且效果亦不比简单搜索好多少。一次极度缩减的流水线大约需要50万词元，部分实现图结构需要百万词元（~一小时并行搜索处理），本地很难负担此成本。
