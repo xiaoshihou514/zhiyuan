@@ -7252,6 +7252,7 @@ dependencies = [
  "uuid",
  "zhiyuan-agents",
  "zhiyuan-core",
+ "zhiyuan-embedding",
  "zhiyuan-extract",
  "zhiyuan-memory",
  "zhiyuan-robust",

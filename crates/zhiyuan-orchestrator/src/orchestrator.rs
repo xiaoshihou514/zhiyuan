@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Semaphore;
 use zhiyuan_agents::*;
 use zhiyuan_core::*;
+use zhiyuan_embedding::{auto_embedder, EmbeddingProvider};
 use zhiyuan_extract::WebExtractor;
 use zhiyuan_memory::MemoryManager;
 use zhiyuan_search::EnginePool;
@@ -29,6 +30,7 @@ pub struct ResearchOrchestrator {
     quality_evaluator: QualityEvaluator,
     config: ResearchSettings,
     llm: Box<dyn LlmClient>,
+    _embedder: Box<dyn EmbeddingProvider>,
     progress: Option<Box<dyn ProgressReporter>>,
 }
 
@@ -43,6 +45,13 @@ impl ResearchOrchestrator {
     ) -> Self {
         let extractor = Arc::new(WebExtractor::new());
         let memory = memory_path.and_then(|p| MemoryManager::open(p).ok());
+        let embedder = auto_embedder(None);
+
+        if embedder.dimension() > 0 {
+            tracing::info!("embedding 模型已加载: {} ({} 维)", embedder.name(), embedder.dimension());
+        } else {
+            tracing::info!("embedding 模型不可用，将使用关键词匹配降级");
+        }
 
         Self {
             memory,
@@ -55,6 +64,7 @@ impl ResearchOrchestrator {
             quality_evaluator: QualityEvaluator::new(Some(llm.clone_box())),
             config,
             llm,
+            _embedder: embedder,
             progress,
         }
     }

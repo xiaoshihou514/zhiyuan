@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 zhiyuan-core = { path = "../zhiyuan-core" }
+zhiyuan-embedding = { path = "../zhiyuan-embedding" }
 zhiyuan-memory = { path = "../zhiyuan-memory" }
 zhiyuan-agents = { path = "../zhiyuan-agents" }
 zhiyuan-robust = { path = "../zhiyuan-robust" }
