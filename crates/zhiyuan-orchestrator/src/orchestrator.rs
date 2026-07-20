@@ -46,11 +46,7 @@ impl ResearchOrchestrator {
         let extractor = Arc::new(WebExtractor::new());
         let memory = memory_path.and_then(|p| MemoryManager::open(p).ok());
         let embedder = auto_embedder(None);
-
-        if embedder.dimension() > 0 {
-            tracing::info!("embedding 模型已加载: {} ({} 维)", embedder.name(), embedder.dimension());
-        }
-        // dimension == 0 时日志已在 auto_embedder 中打印
+        tracing::info!("embedding 模型已加载: {} ({} 维)", embedder.name(), embedder.dimension());
 
         Self {
             memory,
