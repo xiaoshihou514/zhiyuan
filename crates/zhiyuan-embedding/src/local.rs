@@ -73,7 +73,7 @@ impl LocalEmbedder {
             }),
         };
 
-        let repo_slug = repo_id.replace('/', "--").replace('-', "--");
+        let repo_slug = repo_id.replace('/', "--");
         let repo_dir = cache_dir.join(format!("models--{}", repo_slug));
         let blob_dir = repo_dir.join("blobs");
         let blob_hash = sha256_hex(model_file);
