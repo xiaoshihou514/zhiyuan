@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use sha2::{Digest, Sha256};
-use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -60,25 +59,10 @@ impl LocalEmbedder {
         }
     }
 
-    /// 用 reqwest 预下载模型到 hf-hub 缓存目录
+    /// 用 ureq 预下载模型到 hf-hub 缓存目录
     ///
-    /// hf-hub 的 ureq HTTP 客户端在某些网络环境中（如代理限制、CDN UA 过滤）可能失败。
-    /// 此函数使用 reqwest（浏览器兼容性更好的 HTTP 库，自动读取 HTTP_PROXY/HTTPS_PROXY 环境变量）
-    /// 预先将模型文件下载到缓存中，然后 fastembed 可以直接从缓存加载而无需走 hf-hub 下载路径。
+    /// 纯同步实现，可在 tokio 上下文中安全调用（不创建也不阻塞 runtime）。
     fn predownload_model(model_name: Option<&str>, cache_dir: &std::path::Path) -> Result<(), EmbeddingError> {
-        // 在 tokio 上下文中用 block_on 执行异步下载
-        let handle = match tokio::runtime::Handle::try_current() {
-            Ok(h) => h,
-            Err(_) => return Err(EmbeddingError {
-                message: "无法获取 tokio runtime".into(),
-                kind: EmbeddingErrorKind::NotAvailable,
-            }),
-        };
-        handle.block_on(Self::predownload_model_async(model_name, cache_dir))
-    }
-
-    /// predownload_model 的异步实现
-    async fn predownload_model_async(model_name: Option<&str>, cache_dir: &std::path::Path) -> Result<(), EmbeddingError> {
         let (repo_id, model_file, _dim) = match model_name {
             Some("bge-large-zh") | None => ("Xenova/bge-large-zh-v1.5", "onnx/model.onnx", 1024),
             Some("bge-small-zh") => ("Xenova/bge-small-zh-v1.5", "onnx/model.onnx", 512),
@@ -89,70 +73,42 @@ impl LocalEmbedder {
             }),
         };
 
-        // hf-hub cache path: {cache_dir}/models--{repo_id_slug}/
         let repo_slug = repo_id.replace('/', "--").replace('-', "--");
         let repo_dir = cache_dir.join(format!("models--{}", repo_slug));
         let blob_dir = repo_dir.join("blobs");
-
-        // Blob 文件名 = sha256(relative_file_path)
         let blob_hash = sha256_hex(model_file);
         let blob_path = blob_dir.join(&blob_hash);
 
         if blob_path.exists() {
-            return Ok(()); // 已缓存
+            return Ok(());
         }
 
-        tracing::info!("正在下载 embedding 模型（{repo_id}/{model_file}）...");
-
-        // 获取 commit hash 和文件大小：先发 HEAD 请求
         let endpoint = std::env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://huggingface.co".to_string());
         let model_url = format!("{endpoint}/{repo_id}/resolve/main/{model_file}");
+        tracing::info!("正在下载 embedding 模型...");
 
-        let client = reqwest::Client::builder()
+        // 用 ureq 同步下载（不涉及 tokio runtime）
+        let agent = ureq::AgentBuilder::new()
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
-            .timeout(Duration::from_secs(300)) // 5 分钟总超时
-            .connect_timeout(Duration::from_secs(30)) // 连接超时 30 秒
-            .build()
-            .map_err(|e| EmbeddingError {
-                message: format!("创建 HTTP 客户端失败: {e}"),
-                kind: EmbeddingErrorKind::ModelLoad,
-            })?;
+            .timeout_connect(Duration::from_secs(30))
+            .timeout(Duration::from_secs(300))
+            .build();
 
-        // 先 HEAD 获取 commit hash 和文件大小
-        let head_resp = client.head(&model_url).send().await.map_err(|e| EmbeddingError {
-            message: format!("请求模型元数据失败（请检查代理/网络）: {e}"),
+        // HEAD 获取元数据
+        let head_resp = agent.head(&model_url).call().map_err(|e| EmbeddingError {
+            message: format!("请求元数据失败: {e}，请检查网络/代理"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
-        let status = head_resp.status();
-        if !status.is_success() {
-            return Err(EmbeddingError {
-                message: format!("服务器返回 {status}（请检查 HF_ENDPOINT 和代理设置）"),
-                kind: EmbeddingErrorKind::ModelLoad,
-            });
-        }
-        let commit_hash = head_resp
-            .headers()
-            .get("x-repo-commit")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("main")
-            .to_string();
-        let file_size: u64 = head_resp
-            .headers()
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-        let size_mb = file_size as f64 / 1_048_576.0;
-        tracing::info!("模型大小约 {size_mb:.1} MB，开始下载...");
+        let commit_hash = head_resp.header("x-repo-commit").unwrap_or("main").to_string();
 
-        // 下载模型文件
+        // 下载文件
         std::fs::create_dir_all(&blob_dir).map_err(|e| EmbeddingError {
             message: format!("创建缓存目录失败: {e}"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
 
-        let mut response = client.get(&model_url).send().await.map_err(|e| EmbeddingError {
-            message: format!("下载模型文件失败: {e}"),
+        let response = agent.get(&model_url).call().map_err(|e| EmbeddingError {
+            message: format!("下载失败: {e}，请检查网络/代理"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
 
@@ -160,49 +116,23 @@ impl LocalEmbedder {
             message: format!("创建文件失败: {e}"),
             kind: EmbeddingErrorKind::ModelLoad,
         })?;
-        let mut downloaded: u64 = 0;
-        let mut last_log = std::time::Instant::now();
-        while let Some(chunk) = response.chunk().await.map_err(|e| EmbeddingError {
-            message: format!("读取下载流失败: {e}"),
+        std::io::copy(&mut response.into_reader(), &mut file).map_err(|e| EmbeddingError {
+            message: format!("写入文件失败: {e}"),
             kind: EmbeddingErrorKind::ModelLoad,
-        })? {
-            downloaded += chunk.len() as u64;
-            file.write_all(&chunk).map_err(|e| EmbeddingError {
-                message: format!("写入文件失败: {e}"),
-                kind: EmbeddingErrorKind::ModelLoad,
-            })?;
-            if last_log.elapsed() >= Duration::from_secs(5) {
-                let pct = if file_size > 0 {
-                    downloaded as f64 / file_size as f64 * 100.0
-                } else {
-                    0.0
-                };
-                let dl_mb = downloaded as f64 / 1_048_576.0;
-                tracing::info!("  {dl_mb:.1}/{size_mb:.1} MB ({pct:.0}%)");
-                last_log = std::time::Instant::now();
-            }
-        }
+        })?;
         drop(file);
 
-        // 创建 refs/main
+        // 创建 refs/main + snapshot symlink
         let refs_dir = repo_dir.join("refs");
         std::fs::create_dir_all(&refs_dir).ok();
         let _ = std::fs::write(refs_dir.join("main"), &commit_hash);
 
-        // 创建 snapshot symlink: snapshots/{commit_hash}/onnx/model.onnx → blob
         let pointer_path = repo_dir.join("snapshots").join(&commit_hash).join(model_file);
-        std::fs::create_dir_all(pointer_path.parent().unwrap()).map_err(|e| EmbeddingError {
-            message: format!("创建 snapshot 目录失败: {e}"),
-            kind: EmbeddingErrorKind::ModelLoad,
-        })?;
-
-        // 尝试创建相对 symlink，失败则直接复制
-        let rel_blob = pathdiff::diff_paths(&blob_path, pointer_path.parent().unwrap());
-        if let Some(rel) = rel_blob {
+        std::fs::create_dir_all(pointer_path.parent().unwrap()).ok();
+        let rel = pathdiff::diff_paths(&blob_path, pointer_path.parent().unwrap());
+        if let Some(rel) = rel {
             #[cfg(unix)]
             std::os::unix::fs::symlink(&rel, &pointer_path).ok();
-            #[cfg(windows)]
-            std::os::windows::fs::symlink_file(&rel, &pointer_path).ok();
         }
         if !pointer_path.exists() {
             std::fs::copy(&blob_path, &pointer_path).ok();
