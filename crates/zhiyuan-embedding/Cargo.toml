@@ -14,7 +14,7 @@ bincode = "1"
 instant-distance = "0.6"
 
 # 本地 embedding 模型（可选，编译时不需要模型文件）
-fastembed = { version = "4", features = ["ort-download-binaries", "hf-hub-rustls-tls"], optional = true }
+fastembed = { version = "4", features = ["ort-download-binaries", "hf-hub-native-tls"], optional = true }
 tokio = { version = "1", features = ["sync"], optional = true }
 
 [features]
