@@ -500,7 +500,26 @@ async fn fix_typst_errors(
                 .map(|(key, _)| key)
             {
                 let closest = closest_bib_keys(bad_key, &bib_keys, 3);
-                if !closest.is_empty() {
+                if let Some(&best) = closest.first() {
+                    // 直接用 Rust 做替换，不依赖 LLM——Levenshtein 距离 < 5 的 key 肯定是对的
+                    let bad_ref = format!("@{}", bad_key);
+                    let good_ref = format!("@{}", best);
+                    if para.contains(&bad_ref) {
+                        let fixed = para.replace(&bad_ref, &good_ref);
+                        if !fixed.is_empty() && fixed != para {
+                            history.push((format!("引用修复: {} → {}", bad_key, best), fixed.clone()));
+                            section.content = format!(
+                                "{}{}{}",
+                                &section.content[..span.content_start],
+                                fixed,
+                                &section.content[span.content_end..]
+                            );
+                            fixed_any = true;
+                            eprintln!("  ✓ 自动修复引用: @{} → @{}", bad_key, best);
+                            break;
+                        }
+                    }
+                    // 如果段落中没找到 @bad_key，回退到 LLM
                     user.push_str("\n\n可用引用（works.bib 中与错误 key 最接近的匹配）：\n");
                     for k in closest {
                         user.push_str(&format!("  @{}\n", k));
@@ -508,13 +527,14 @@ async fn fix_typst_errors(
                     user.push_str("\n将段落中的错误 key 替换为上面正确的 key。");
                 }
             }
-        }
-
-        for (prev_err, prev_fix) in history.iter().rev().take(3).rev() {
-            user.push_str(&format!(
-                "\n\n之前的错误：{}\n对应修复：{}",
-                prev_err, prev_fix
-            ));
+        } else {
+            // 非引用错误，走原有 LLM 修复路径
+            for (prev_err, prev_fix) in history.iter().rev().take(3).rev() {
+                user.push_str(&format!(
+                    "\n\n之前的错误：{}\n对应修复：{}",
+                    prev_err, prev_fix
+                ));
+            }
         }
 
         match llm.prompt(system, &user).await {

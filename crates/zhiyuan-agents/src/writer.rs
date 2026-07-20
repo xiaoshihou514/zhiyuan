@@ -283,6 +283,7 @@ impl WriterAgent {
                 id: Uuid::new_v4(),
                 url: url.clone(),
                 title: url.clone(),
+                reliability: 0.5,
             })
             .collect();
 
